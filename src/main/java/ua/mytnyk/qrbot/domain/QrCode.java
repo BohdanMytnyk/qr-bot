@@ -9,7 +9,8 @@ import org.springframework.data.mongodb.core.mapping.Document;
 public record QrCode(@Id String id, String token, QrType type, QrStatus status,
                      long ownerId, long channelId, int messageId, byte[] passwordSalt,
                      byte[] passwordHash, Instant createdAt, long openCount, List<Integer> messageIds,
-                     List<QrContentItem> contentItems) {
+                     List<QrContentItem> contentItems, Long redeemedByUserId, String redeemedByUsername,
+                     String redeemedByName, Instant redeemedAt, Boolean ignorePasswordCase, String previewText) {
 
     public List<Integer> contentMessageIds() {
         return messageIds == null || messageIds.isEmpty() ? List.of(messageId) : messageIds;

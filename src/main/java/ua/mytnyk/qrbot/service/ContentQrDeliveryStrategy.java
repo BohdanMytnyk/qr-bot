@@ -14,8 +14,8 @@ public class ContentQrDeliveryStrategy implements ContentDeliveryStrategy {
 
     public boolean supports(QrCode qrCode) {
         return qrCode.type() == QrType.CONTENT
-                || qrCode.type() == QrType.PROTECTED_CONTENT
-                || qrCode.type() == QrType.ONE_TIME_CONTENT;
+                || qrCode.type() == QrType.SINGLE_USE
+                || qrCode.type() == QrType.COUPON;
     }
     public void deliver(QrCode qrCode, long targetChatId) {
         if (qrCode.contentItems() != null && !qrCode.contentItems().isEmpty()) {

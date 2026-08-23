@@ -166,31 +166,6 @@ public class TelegramGateway {
         return messageIds;
     }
 
-    public List<Integer> sendComposedContent(long chatId, List<QrContentItem> items) {
-        var text = items.stream().filter(item -> item.kind() == QrContentItem.Kind.TEXT)
-                .map(QrContentItem::text).filter(Objects::nonNull).collect(java.util.stream.Collectors.joining("\n\n"));
-        var media = items.stream().filter(item -> item.kind() != QrContentItem.Kind.TEXT)
-                .collect(java.util.stream.Collectors.toCollection(ArrayList::new));
-        if (media.isEmpty()) {
-            return List.of(sendText(chatId, text));
-        }
-        var first = media.get(0);
-        var captionParts = new ArrayList<String>();
-        if (first.caption() != null && !first.caption().isBlank()) {
-            captionParts.add(first.caption());
-        }
-        if (!text.isBlank()) {
-            captionParts.add(text);
-        }
-        var caption = String.join("\n\n", captionParts);
-        if (caption.length() > 1024) {
-            throw new IllegalArgumentException("Combined album text exceeds Telegram's 1024-character caption limit");
-        }
-        media.set(0, new QrContentItem(first.kind(), null, caption.isBlank() ? null : caption,
-                first.fileId(), first.fileUniqueId(), first.order()));
-        return sendContent(chatId, media);
-    }
-
     private int sendMedia(long chatId, QrContentItem item) {
         var method = switch (item.kind()) {
             case PHOTO -> "sendPhoto";

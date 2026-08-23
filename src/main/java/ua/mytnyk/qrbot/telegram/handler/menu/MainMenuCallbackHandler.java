@@ -25,9 +25,11 @@ public class MainMenuCallbackHandler implements CallbackHandler {
 
     public void handle(UpdateWebhook update) {
         var callback = update.getCallbackQuery();
-        var view = workflow.mainMenu(callback.getFrom(), callback.getMessage().getChat().getId());
-        workflow.replaceNavigation(callback.getFrom(), callback.getMessage().getChat().getId(),
-                callback.getMessage().getMessageId(), callback.getMessage().getText() != null, view);
+        if (!workflow.isCurrentNavigation(callback.getFrom().getId(), callback.getMessage().getMessageId())) {
+            telegram.answerCallback(callback.getId(), "This control is outdated.");
+            return;
+        }
+        workflow.showMainMenu(callback.getFrom(), callback.getMessage().getChat().getId());
         telegram.answerCallback(callback.getId(), null);
     }
 }

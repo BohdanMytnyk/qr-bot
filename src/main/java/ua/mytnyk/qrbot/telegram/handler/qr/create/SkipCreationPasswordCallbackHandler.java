@@ -9,27 +9,27 @@ import ua.mytnyk.telegram.common.model.common.webhook.UpdateWebhook;
 
 @Order(10)
 @Component
-public class FinishContentQrCallbackHandler implements CallbackHandler {
+public class SkipCreationPasswordCallbackHandler implements CallbackHandler {
     private final QrWorkflow workflow;
     private final TelegramGateway telegram;
 
-    public FinishContentQrCallbackHandler(QrWorkflow workflow, TelegramGateway telegram) {
+    public SkipCreationPasswordCallbackHandler(QrWorkflow workflow, TelegramGateway telegram) {
         this.workflow = workflow;
         this.telegram = telegram;
     }
 
     public boolean supports(UpdateWebhook update) {
         return update.getCallbackQuery() != null
-                && QrWorkflow.CONTENT_DONE.equals(update.getCallbackQuery().getData());
+                && (QrWorkflow.PROTECTION_PREFIX + "skip").equals(update.getCallbackQuery().getData());
     }
 
     public void handle(UpdateWebhook update) {
         var callback = update.getCallbackQuery();
         if (!workflow.isCurrentNavigation(callback.getFrom().getId(), callback.getMessage().getMessageId())) {
-            telegram.answerCallback(callback.getId(), "This upload control is outdated.");
+            telegram.answerCallback(callback.getId(), "This control is outdated.");
             return;
         }
-        workflow.finishContentSelection(callback.getFrom(), callback.getMessage().getChat().getId());
+        workflow.skipCreationPassword(callback.getFrom(), callback.getMessage().getChat().getId());
         telegram.answerCallback(callback.getId(), null);
     }
 }

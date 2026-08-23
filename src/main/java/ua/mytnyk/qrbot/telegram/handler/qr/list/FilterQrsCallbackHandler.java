@@ -5,6 +5,7 @@ import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 import ua.mytnyk.qrbot.domain.QrListSort;
 import ua.mytnyk.qrbot.domain.QrType;
+import ua.mytnyk.qrbot.domain.QrStatus;
 import ua.mytnyk.qrbot.service.QrWorkflow;
 import ua.mytnyk.qrbot.telegram.TelegramGateway;
 import ua.mytnyk.qrbot.telegram.handler.CallbackHandler;
@@ -15,8 +16,10 @@ import ua.mytnyk.telegram.common.model.common.webhook.UpdateWebhook;
 public class FilterQrsCallbackHandler implements CallbackHandler {
     private static final Set<String> SUPPORTED_DATA = Set.of(
             QrWorkflow.FILTER_TYPE_PREFIX + QrType.CONTENT,
-            QrWorkflow.FILTER_TYPE_PREFIX + QrType.PROTECTED_CONTENT,
-            QrWorkflow.FILTER_TYPE_PREFIX + QrType.ONE_TIME_CONTENT,
+            QrWorkflow.FILTER_TYPE_PREFIX + QrType.SINGLE_USE,
+            QrWorkflow.FILTER_TYPE_PREFIX + QrType.COUPON,
+            QrWorkflow.FILTER_STATUS_PREFIX + QrStatus.ACTIVE,
+            QrWorkflow.FILTER_STATUS_PREFIX + QrStatus.REDEEMED,
             QrWorkflow.SORT_PREFIX + QrListSort.NEWEST,
             QrWorkflow.SORT_PREFIX + QrListSort.OLDEST);
     private final QrWorkflow workflow;

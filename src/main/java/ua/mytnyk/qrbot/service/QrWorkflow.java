@@ -28,6 +28,7 @@ import ua.mytnyk.qrbot.domain.QrListPreferences;
 import ua.mytnyk.qrbot.domain.QrListSort;
 import ua.mytnyk.qrbot.domain.QrStatus;
 import ua.mytnyk.qrbot.domain.QrType;
+import ua.mytnyk.qrbot.domain.PendingPasswordOptions;
 import ua.mytnyk.qrbot.repository.BotUserRepository;
 import ua.mytnyk.qrbot.repository.QrAccessRepository;
 import ua.mytnyk.qrbot.repository.QrCodeRepository;
@@ -49,10 +50,18 @@ public class QrWorkflow {
     public static final String NOOP = "qr:noop";
     public static final String CONTENT_DONE = "create:content:done";
     public static final String DELETE_PREFIX = "qr:delete:";
+    public static final String CHANGE_PASSWORD_PREFIX = "qr:password:";
     public static final String FILTER_TYPE_PREFIX = "list:type:";
     public static final String FILTER_STATUS_PREFIX = "list:status:";
     public static final String SORT_PREFIX = "list:sort:";
+    public static final String CREATION_CASE_PREFIX = "create:password-case:";
+    public static final String CHANGE_CASE_PREFIX = "list:password-case:";
+    public static final String PROTECTION_PREFIX = "create:protection:";
     private static final Logger log = LoggerFactory.getLogger(QrWorkflow.class);
+    private static final int MAX_CONTENT_ITEMS = 10;
+    private static final int MAX_MEDIA_ITEMS = 10;
+    private static final int MAX_TEXT_LENGTH = 4096;
+    private static final int MAX_MEDIA_CAPTION_LENGTH = 1024;
     private static final DateTimeFormatter DISPLAY_DATE = DateTimeFormatter
             .ofPattern("dd MMM yyyy, HH:mm").withZone(ZoneId.of("Europe/Kyiv"));
     private final BotUserRepository users;
@@ -84,12 +93,18 @@ public class QrWorkflow {
     }
 
     public void showMainMenu(Message message) {
-        deleteNavigation(message.getFrom().getId(), message.getChat().getId());
-        resetUser(message.getFrom());
+        showMainMenu(message.getFrom(), message.getChat().getId());
+    }
+
+    public void showMainMenu(User actor, long chatId) {
+        deleteNavigation(actor.getId(), chatId);
+        resetUser(actor);
         var view = mainMenuView();
-        var navigationMessageId = telegram.sendInline(message.getChat().getId(), view.text(), view.keyboard());
-        setNavigationMessage(message.getFrom(), navigationMessageId);
-        analytics.track(AnalyticsAction.MAIN_MENU_VIEWED, message.getFrom().getId(), message.getChat().getId());
+        var navigationMessageId = telegram.sendInline(chatId, view.text(), view.keyboard());
+        setNavigationMessage(actor, navigationMessageId);
+        setDisplayedMessages(actor, List.of(navigationMessageId));
+        analytics.track(AnalyticsAction.MAIN_MENU_VIEWED, actor.getId(), chatId);
+        log.info("Main menu shown and user state reset userId={} chatId={}", actor.getId(), chatId);
     }
 
     public BotView mainMenu(User actor, long chatId) {
@@ -118,8 +133,8 @@ public class QrWorkflow {
         log.info("QR creation started userId={}", actor.getId());
         return new BotView("🧩 Select the QR type.", keyboard(List.of(
                 row(button("📄 Content", TYPE_PREFIX + QrType.CONTENT)),
-                row(button("🔐 Protected content", TYPE_PREFIX + QrType.PROTECTED_CONTENT)),
-                row(button("🎟️ One-time content", TYPE_PREFIX + QrType.ONE_TIME_CONTENT)),
+                row(button("1️⃣ Single-use QR", TYPE_PREFIX + QrType.SINGLE_USE)),
+                row(button("🎟️ Coupon", TYPE_PREFIX + QrType.COUPON)),
                 row(button("🏠 Main menu", MENU_HOME)))));
     }
 
@@ -129,7 +144,8 @@ public class QrWorkflow {
         analytics.track(AnalyticsAction.QR_TYPE_SELECTED, actor.getId(), chatId, null,
                 Map.of("qrType", type.name()));
         log.info("QR type selected userId={} type={}", actor.getId(), type);
-        return new BotView("⏳ Waiting for content…\n\nSend one or more messages, then tap Done.",
+        return new BotView("⏳ Waiting for content…\n\n⚠️ Send all content as ONE message with no more than"
+                + " 10 attached files. Additional messages or separate uploads may not be processed.",
                 keyboard(List.of(row(button("❌ Cancel", MENU_HOME)))));
     }
 
@@ -137,30 +153,64 @@ public class QrWorkflow {
         return hasState(userId, BotUser.State.WAITING_FOR_CONTENT);
     }
 
-    public synchronized void acceptContent(Message message) {
+    public boolean isCurrentNavigation(long userId, int messageId) {
+        return users.findById(userId).map(BotUser::navigationMessageId)
+                .map(currentMessageId -> currentMessageId == messageId).orElse(false);
+    }
+
+    public void acceptContent(Message message) {
         var user = requiredUser(message.getFrom().getId(), BotUser.State.WAITING_FOR_CONTENT);
         var chatId = message.getChat().getId();
         var contentItems = new ArrayList<QrContentItem>();
         if (user.pendingContentItems() != null) {
             contentItems.addAll(user.pendingContentItems());
         }
-        var contentItem = contentItem(message, contentItems.size());
+        var firstContentItem = contentItems.isEmpty();
+        if (contentItems.stream().anyMatch(item -> item.order() == message.getMessageId())) {
+            log.info("Duplicate content update ignored userId={} messageId={} mediaGroupId={}",
+                    message.getFrom().getId(), message.getMessageId(), message.getMediaGroupId());
+            return;
+        }
+        var mediaGroupId = contentItems.isEmpty() ? message.getMediaGroupId() : user.pendingMediaGroupId();
+        if (!contentItems.isEmpty()
+                && (mediaGroupId == null || !mediaGroupId.equals(message.getMediaGroupId()))) {
+            log.info("Additional content submission ignored userId={} messageId={} mediaGroupId={}"
+                            + " acceptedMediaGroupId={}",
+                    message.getFrom().getId(), message.getMessageId(), message.getMediaGroupId(), mediaGroupId);
+            return;
+        }
+        var contentItem = contentItem(message, message.getMessageId());
         contentItems.add(contentItem);
-        var storedMessageIds = telegram.sendComposedContent(properties.getContentChannelId(), contentItems);
-        telegram.deleteMessage(chatId, message.getMessageId());
-        deleteNavigation(message.getFrom().getId(), chatId);
+        contentItems.sort(java.util.Comparator.comparingInt(QrContentItem::order));
+        var limitViolation = contentLimitViolation(contentItems);
+        if (limitViolation != null) {
+            telegram.sendText(chatId, "⚠️ " + limitViolation + " The existing draft was not changed.");
+            refreshUploadControl(message.getFrom(), chatId, contentItems.size() - 1,
+                    previewText(user.pendingContentItems()), false);
+            log.info("Draft content limit reached userId={} messageId={} mediaGroupId={} reason={}",
+                    message.getFrom().getId(), message.getMessageId(), message.getMediaGroupId(), limitViolation);
+            return;
+        }
+        var newStoredMessageIds = telegram.sendContent(properties.getContentChannelId(), List.of(contentItem));
+        var storedMessageIds = new ArrayList<Integer>();
+        if (user.pendingMessageIds() != null) {
+            storedMessageIds.addAll(user.pendingMessageIds());
+        }
+        storedMessageIds.addAll(newStoredMessageIds);
         var storedMessageId = storedMessageIds.get(0);
         analytics.track(AnalyticsAction.CONTENT_SELECTED, message.getFrom().getId(), chatId, null,
                 Map.of("qrType", user.selectedType().name()));
         saveUser(message.getFrom(), BotUser.State.WAITING_FOR_CONTENT, user.selectedType(), storedMessageId,
-                null, storedMessageIds, null);
+                null, storedMessageIds, mediaGroupId);
         users.save(users.findById(message.getFrom().getId()).orElseThrow().withPendingContentItems(contentItems));
-        var displayedMessageIds = new ArrayList<>(telegram.sendComposedContent(chatId, contentItems));
-        var view = contentReadyView(contentItems.size());
-        var navigationMessageId = telegram.sendInline(chatId, view.text(), view.keyboard());
-        displayedMessageIds.add(navigationMessageId);
-        setNavigationMessage(message.getFrom(), navigationMessageId);
-        setDisplayedMessages(message.getFrom(), displayedMessageIds);
+        log.info("Draft content updated userId={} messageId={} mediaGroupId={} itemCount={}",
+                message.getFrom().getId(), message.getMessageId(), message.getMediaGroupId(), contentItems.size());
+        if (contentItem.kind() == QrContentItem.Kind.TEXT) {
+            finishContentSelection(message.getFrom(), chatId);
+            return;
+        }
+        refreshUploadControl(message.getFrom(), chatId, contentItems.size(), previewText(contentItems),
+                firstContentItem);
     }
 
     public BotView finishContentSelection(User actor, long chatId) {
@@ -168,21 +218,33 @@ public class QrWorkflow {
         var type = user.selectedType();
         var storedMessageIds = user.pendingMessageIds();
         if (storedMessageIds == null || storedMessageIds.isEmpty()) {
-            return contentReadyView(0);
+            return contentReadyView(0, null);
         }
         var storedMessageId = storedMessageIds.get(0);
-        if (type == QrType.PROTECTED_CONTENT) {
-            saveUser(actor, BotUser.State.WAITING_FOR_CREATION_PASSWORD,
-                    type, storedMessageId, null, storedMessageIds, null);
-            deleteNavigation(actor.getId(), chatId);
-            var navigationMessageId = telegram.sendInline(chatId,
-                    "🔐 Send the password/code for this QR. Your message will be deleted immediately.",
-                    keyboard(List.of(row(button("❌ Cancel", MENU_HOME)))));
-            setNavigationMessage(actor, navigationMessageId);
+        if (type == QrType.COUPON) {
+            finishCreation(actor, chatId, type, storedMessageIds, null, null);
             return null;
         }
-        finishCreation(actor, chatId, type, storedMessageIds, null);
+        saveUser(actor, BotUser.State.WAITING_FOR_CREATION_PASSWORD,
+                type, storedMessageId, null, storedMessageIds, null);
+        var navigationMessageId = user.navigationMessageId();
+        var hasAttachments = user.pendingContentItems() != null && user.pendingContentItems().stream()
+                .anyMatch(item -> item.kind() != QrContentItem.Kind.TEXT);
+        var text = "🔐 Send a password/code for this QR. Your message will be deleted immediately.";
+        var keyboard = keyboard(List.of(row(button("⏭️ Skip password", PROTECTION_PREFIX + "skip")),
+                row(button("❌ Cancel", MENU_HOME))));
+        if (!hasAttachments || navigationMessageId == null) {
+            navigationMessageId = telegram.sendInline(chatId, text, keyboard);
+        } else {
+            telegram.editInline(chatId, navigationMessageId, text, keyboard);
+        }
+        setNavigationMessage(actor, navigationMessageId);
         return null;
+    }
+
+    public void skipCreationPassword(User actor, long chatId) {
+        var user = requiredUser(actor.getId(), BotUser.State.WAITING_FOR_CREATION_PASSWORD);
+        finishCreation(actor, chatId, user.selectedType(), user.pendingMessageIds(), null, null);
     }
 
     public boolean isWaitingForCreationPassword(long userId) {
@@ -192,10 +254,26 @@ public class QrWorkflow {
     public void acceptCreationPassword(Message message) {
         var user = requiredUser(message.getFrom().getId(), BotUser.State.WAITING_FOR_CREATION_PASSWORD);
         telegram.deleteMessage(message.getChat().getId(), message.getMessageId());
-        var passwordValue = passwords.hash(requirePassword(message));
-        analytics.track(AnalyticsAction.CREATION_PASSWORD_SET, message.getFrom().getId(), message.getChat().getId());
-        finishCreation(message.getFrom(), message.getChat().getId(), user.selectedType(),
-                user.pendingMessageIds(), passwordValue);
+        var password = requirePassword(message);
+        setPendingPasswordOptions(message.getFrom(), passwordOptions(password));
+        saveUser(message.getFrom(), BotUser.State.WAITING_FOR_CREATION_CASE_CHOICE, user.selectedType(),
+                user.channelMessageId(), null, user.pendingMessageIds(), null);
+        var navigationMessageId = user.navigationMessageId();
+        var text = "🔤 Should answers ignore letter case?\n\nExample: Gift, GIFT, and gift would all match.";
+        var keyboard = caseChoiceKeyboard(CREATION_CASE_PREFIX);
+        if (navigationMessageId == null) {
+            navigationMessageId = telegram.sendInline(message.getChat().getId(), text, keyboard);
+        } else {
+            telegram.editInline(message.getChat().getId(), navigationMessageId, text, keyboard);
+        }
+        setNavigationMessage(message.getFrom(), navigationMessageId);
+    }
+
+    public void chooseCreationPasswordCase(User actor, long chatId, boolean ignoreCase) {
+        var user = requiredUser(actor.getId(), BotUser.State.WAITING_FOR_CREATION_CASE_CHOICE);
+        var password = selectedPassword(user.pendingPasswordOptions(), ignoreCase);
+        analytics.track(AnalyticsAction.CREATION_PASSWORD_SET, actor.getId(), chatId);
+        finishCreation(actor, chatId, user.selectedType(), user.pendingMessageIds(), password, ignoreCase);
     }
 
     public BotView listCreatedQrs(User actor, long chatId) {
@@ -209,16 +287,22 @@ public class QrWorkflow {
                 .append("\n📅 Created: ").append(preferences.sort() == QrListSort.NEWEST ? "newest first" : "oldest first");
         var rows = new ArrayList<List<InlineKeyboardButton>>();
         rows.add(row(
-                checkboxButton(QrType.CONTENT, preferences.types()),
-                checkboxButton(QrType.PROTECTED_CONTENT, preferences.types()),
-                checkboxButton(QrType.ONE_TIME_CONTENT, preferences.types())));
+                groupedTypeCheckboxButton(QrType.CONTENT, preferences.types()),
+                groupedTypeCheckboxButton(QrType.SINGLE_USE, preferences.types()),
+                groupedTypeCheckboxButton(QrType.COUPON, preferences.types())));
+        rows.add(row(statusCheckboxButton(QrStatus.ACTIVE, preferences.statuses()),
+                statusCheckboxButton(QrStatus.REDEEMED, preferences.statuses())));
         rows.add(row(button(preferences.sort() == QrListSort.NEWEST ? "📅 ↓ Newest" : "📅 ↑ Oldest",
                 SORT_PREFIX + (preferences.sort() == QrListSort.NEWEST
                         ? QrListSort.OLDEST : QrListSort.NEWEST))));
         var index = 1;
         for (var qrCode : all) {
             var description = index + ". " + typeEmoji(qrCode.type()) + " " + typeLabel(qrCode.type()) + " · "
-                    + "👁 " + qrCode.openCount();
+                    + statusEmoji(effectiveStatus(qrCode)) + " " + effectiveStatus(qrCode) + " · 👁 " + qrCode.openCount();
+            if (qrCode.previewText() != null && !qrCode.previewText().isBlank()) {
+                description += " · " + qrCode.previewText();
+            }
+            description = truncate(description, 64);
             rows.add(row(button(description, VIEW_PREFIX + qrCode.id())));
             index++;
         }
@@ -237,20 +321,29 @@ public class QrWorkflow {
         var current = preferences(user);
         var types = EnumSet.noneOf(QrType.class);
         types.addAll(current.types());
-        var status = current.status();
+        var statuses = EnumSet.noneOf(QrStatus.class);
+        statuses.addAll(current.statuses());
         var sort = current.sort();
         if (callbackData.startsWith(FILTER_TYPE_PREFIX)) {
             var type = QrType.valueOf(callbackData.substring(FILTER_TYPE_PREFIX.length()));
-            if (!types.remove(type)) {
-                types.add(type);
+            var group = typeGroup(type);
+            if (types.containsAll(group)) {
+                types.removeAll(group);
+            } else {
+                types.addAll(group);
             }
         } else if (callbackData.startsWith(SORT_PREFIX)) {
             sort = QrListSort.valueOf(callbackData.substring(SORT_PREFIX.length()));
+        } else if (callbackData.startsWith(FILTER_STATUS_PREFIX)) {
+            var status = QrStatus.valueOf(callbackData.substring(FILTER_STATUS_PREFIX.length()));
+            if (!statuses.remove(status)) {
+                statuses.add(status);
+            }
         }
         users.save(new BotUser(user.id(), actor.getUsername(), user.state(), user.selectedType(),
-                user.channelMessageId(), user.pendingQrId(), new QrListPreferences(types, status, sort),
+                user.channelMessageId(), user.pendingQrId(), new QrListPreferences(types, statuses, sort),
                 user.navigationMessageId(), clock.instant(), user.pendingMessageIds(), user.pendingMediaGroupId(),
-                user.displayedMessageIds(), user.pendingContentItems()));
+                user.displayedMessageIds(), user.pendingContentItems(), user.pendingPasswordOptions()));
         return listCreatedQrs(actor, chatId);
     }
 
@@ -266,6 +359,9 @@ public class QrWorkflow {
         var rows = new ArrayList<List<InlineKeyboardButton>>();
         rows.add(row(button("📷 Show QR and link", SHOW_QR_PREFIX + qrCode.id())));
         if (effectiveStatus(qrCode) == QrStatus.ACTIVE) {
+            if (isPasswordProtected(qrCode)) {
+                rows.add(row(button("🔑 Change password", CHANGE_PASSWORD_PREFIX + qrCode.id())));
+            }
             rows.add(row(button("🗑️ Delete QR", DELETE_PREFIX + qrCode.id())));
         }
         rows.add(row(button("⬅️ Back to My QRs", MENU_LIST), button("🏠 Main menu", MENU_HOME)));
@@ -276,6 +372,14 @@ public class QrWorkflow {
                 + "\n✅ Status: " + effectiveStatus(qrCode)
                 + "\n👁 Successful opens: " + qrCode.openCount()
                 + "\n📅 Created: " + DISPLAY_DATE.format(qrCode.createdAt());
+        if (qrCode.previewText() != null && !qrCode.previewText().isBlank()) {
+            details += "\n📝 Preview: " + qrCode.previewText();
+        }
+        if (effectiveStatus(qrCode) == QrStatus.REDEEMED) {
+            details += "\n\n👤 Redeemed by: " + redeemedBy(qrCode)
+                    + "\n🕐 Redeemed: " + (qrCode.redeemedAt() == null
+                    ? "Unknown" : DISPLAY_DATE.format(qrCode.redeemedAt()));
+        }
         var navigationMessageId = telegram.sendInline(chatId, details, keyboard(rows));
         displayedMessageIds.add(navigationMessageId);
         setNavigationMessage(actor, navigationMessageId);
@@ -314,26 +418,97 @@ public class QrWorkflow {
         return new DeleteResult(true, listCreatedQrs(actor, chatId));
     }
 
+    public BotView beginPasswordChange(String qrId, User actor, long chatId) {
+        var qrCode = qrCodes.findByIdAndOwnerId(qrId, actor.getId()).orElse(null);
+        if (qrCode == null || effectiveStatus(qrCode) != QrStatus.ACTIVE
+                || !isPasswordProtected(qrCode)) {
+            saveUser(actor, BotUser.State.IDLE, null, null, null);
+            return new BotView("🔍 QR not found.\n\n" + mainMenuView().text(), mainMenuView().keyboard());
+        }
+        saveUser(actor, BotUser.State.WAITING_FOR_PASSWORD_CHANGE, null, null, qrId);
+        return new BotView("🔑 Send the new password/code. Your message will be deleted immediately.",
+                keyboard(List.of(row(button("❌ Cancel", MENU_HOME)))));
+    }
+
+    public boolean isWaitingForPasswordChange(long userId) {
+        return hasState(userId, BotUser.State.WAITING_FOR_PASSWORD_CHANGE);
+    }
+
+    public void acceptPasswordChange(Message message) {
+        var user = requiredUser(message.getFrom().getId(), BotUser.State.WAITING_FOR_PASSWORD_CHANGE);
+        telegram.deleteMessage(message.getChat().getId(), message.getMessageId());
+        var qrCode = qrCodes.findByIdAndOwnerId(user.pendingQrId(), message.getFrom().getId()).orElse(null);
+        if (qrCode == null || effectiveStatus(qrCode) != QrStatus.ACTIVE
+                || !isPasswordProtected(qrCode)) {
+            deleteNavigation(message.getFrom().getId(), message.getChat().getId());
+            saveUser(message.getFrom(), BotUser.State.IDLE, null, null, null);
+            sendMainNavigation(message.getFrom(), message.getChat().getId(), "🔍 QR not found.\n\n");
+            return;
+        }
+        var password = requirePassword(message);
+        setPendingPasswordOptions(message.getFrom(), passwordOptions(password));
+        saveUser(message.getFrom(), BotUser.State.WAITING_FOR_CHANGE_CASE_CHOICE, null, null, qrCode.id());
+        deleteNavigation(message.getFrom().getId(), message.getChat().getId());
+        var navigationMessageId = telegram.sendInline(message.getChat().getId(),
+                "🔤 Should answers ignore letter case?\n\nExample: Gift, GIFT, and gift would all match.",
+                caseChoiceKeyboard(CHANGE_CASE_PREFIX));
+        setNavigationMessage(message.getFrom(), navigationMessageId);
+    }
+
+    public void chooseChangedPasswordCase(User actor, long chatId, boolean ignoreCase) {
+        var user = requiredUser(actor.getId(), BotUser.State.WAITING_FOR_CHANGE_CASE_CHOICE);
+        var qrCode = qrCodes.findByIdAndOwnerId(user.pendingQrId(), actor.getId()).orElse(null);
+        if (qrCode == null || effectiveStatus(qrCode) != QrStatus.ACTIVE) {
+            deleteNavigation(actor.getId(), chatId);
+            saveUser(actor, BotUser.State.IDLE, null, null, null);
+            sendMainNavigation(actor, chatId, "🔍 QR not found.\n\n");
+            return;
+        }
+        var password = selectedPassword(user.pendingPasswordOptions(), ignoreCase);
+        mongo.updateFirst(Query.query(Criteria.where("id").is(qrCode.id()).and("ownerId").is(actor.getId())),
+                new Update().set("passwordSalt", password.salt()).set("passwordHash", password.hash())
+                        .set("ignorePasswordCase", ignoreCase), QrCode.class);
+        saveUser(actor, BotUser.State.IDLE, null, null, null);
+        telegram.sendText(chatId, "✅ Password updated");
+        showQrDetails(qrCode.id(), actor, chatId);
+        log.info("QR password updated qrId={} ownerId={} ignoreCase={}", qrCode.id(), actor.getId(), ignoreCase);
+    }
+
     public OpenResult open(String payload, Message message) {
         saveUser(message.getFrom(), BotUser.State.IDLE, null, null, null);
         var qrCode = findByPayload(payload);
         analytics.track(AnalyticsAction.QR_SCANNED, message.getFrom().getId(), message.getChat().getId(), qrCode);
+        if (qrCode != null && effectiveStatus(qrCode) == QrStatus.REDEEMED) {
+            sendMainNavigation(message.getFrom(), message.getChat().getId(),
+                    "ℹ️ This QR has already been redeemed.\n\n");
+            return OpenResult.NOT_FOUND;
+        }
         if (qrCode == null || effectiveStatus(qrCode) != QrStatus.ACTIVE) {
             trackNotFound(message, qrCode);
-            deleteNavigation(message.getFrom().getId(), message.getChat().getId());
             sendMainNavigation(message.getFrom(), message.getChat().getId(), "🔍 QR not found.\n\n");
             return OpenResult.NOT_FOUND;
         }
-        if (qrCode.type() == QrType.ONE_TIME_CONTENT) {
+        if (qrCode.type() == QrType.SINGLE_USE && !isPasswordProtected(qrCode)) {
+            var redeemed = redeemOneTimeGift(qrCode, message.getFrom(), message.getChat().getId());
+            saveUser(message.getFrom(), BotUser.State.IDLE, null, null, null);
+            if (!redeemed) {
+                sendMainNavigation(message.getFrom(), message.getChat().getId(),
+                        "ℹ️ This QR has already been redeemed.\n\n");
+                return OpenResult.NOT_FOUND;
+            }
+            sendMainNavigation(message.getFrom(), message.getChat().getId(), "");
+            return OpenResult.DELIVERED;
+        }
+        if (qrCode.type() == QrType.COUPON) {
             if (qrCode.ownerId() != message.getFrom().getId()) {
                 trackNotFound(message, qrCode);
+                sendMainNavigation(message.getFrom(), message.getChat().getId(), "🔍 QR not found.\n\n");
                 return OpenResult.NOT_FOUND;
             }
             saveUser(message.getFrom(), BotUser.State.WAITING_FOR_REDEEM_CONFIRMATION, null, null, qrCode.id());
-            deleteNavigation(message.getFrom().getId(), message.getChat().getId());
             var displayedMessageIds = previewContent(qrCode, message.getChat().getId());
             var navigationMessageId = telegram.sendInline(message.getChat().getId(),
-                    "🎟️ Redeem this one-time QR now?",
+                    "🎟️ Redeem this coupon now?",
                     keyboard(List.of(row(button("✅ Redeem", REDEEM_PREFIX + qrCode.id())),
                             row(button("❌ Cancel", MENU_HOME)))));
             setNavigationMessage(message.getFrom(), navigationMessageId);
@@ -341,9 +516,8 @@ public class QrWorkflow {
             setDisplayedMessages(message.getFrom(), displayedMessageIds);
             return OpenResult.CONFIRMATION_REQUIRED;
         }
-        if (qrCode.type() == QrType.PROTECTED_CONTENT) {
+        if (isPasswordProtected(qrCode)) {
             saveUser(message.getFrom(), BotUser.State.WAITING_FOR_OPEN_PASSWORD, null, null, qrCode.id());
-            deleteNavigation(message.getFrom().getId(), message.getChat().getId());
             var navigationMessageId = telegram.sendInline(message.getChat().getId(),
                     "🔐 Enter the password/code. Your message will be deleted immediately.",
                     keyboard(List.of(row(button("❌ Cancel", MENU_HOME)))));
@@ -365,8 +539,16 @@ public class QrWorkflow {
         telegram.deleteMessage(message.getChat().getId(), message.getMessageId());
         var qrCode = qrCodes.findById(user.pendingQrId())
                 .orElseThrow(() -> new IllegalStateException("QR code not found"));
-        if (effectiveStatus(qrCode) != QrStatus.ACTIVE
-                || !passwords.matches(requirePassword(message), qrCode.passwordSalt(), qrCode.passwordHash())) {
+        if (effectiveStatus(qrCode) != QrStatus.ACTIVE) {
+            deleteNavigation(message.getFrom().getId(), message.getChat().getId());
+            saveUser(message.getFrom(), BotUser.State.IDLE, null, null, null);
+            var prefix = effectiveStatus(qrCode) == QrStatus.REDEEMED
+                    ? "ℹ️ This QR has already been redeemed.\n\n" : "🔍 QR not found.\n\n";
+            sendMainNavigation(message.getFrom(), message.getChat().getId(), prefix);
+            return false;
+        }
+        var password = normalizePassword(requirePassword(message), Boolean.TRUE.equals(qrCode.ignorePasswordCase()));
+        if (!passwords.matches(password, qrCode.passwordSalt(), qrCode.passwordHash())) {
             deleteNavigation(message.getFrom().getId(), message.getChat().getId());
             var navigationMessageId = telegram.sendInline(message.getChat().getId(),
                     "❌ Incorrect password/code. Try again.",
@@ -375,6 +557,16 @@ public class QrWorkflow {
             analytics.track(AnalyticsAction.PASSWORD_REJECTED, message.getFrom().getId(),
                     message.getChat().getId(), qrCode);
             return false;
+        }
+        if (qrCode.type() == QrType.SINGLE_USE) {
+            var redeemed = redeemOneTimeGift(qrCode, message.getFrom(), message.getChat().getId());
+            saveUser(message.getFrom(), BotUser.State.IDLE, null, null, null);
+            if (!redeemed) {
+                sendMainNavigation(message.getFrom(), message.getChat().getId(), "🔍 QR not found.\n\n");
+                return false;
+            }
+            sendMainNavigation(message.getFrom(), message.getChat().getId(), "");
+            return true;
         }
         completeDelivery(qrCode, message.getFrom(), message.getChat().getId());
         return true;
@@ -402,23 +594,26 @@ public class QrWorkflow {
         if (redeemed) {
             saveUser(actor, BotUser.State.IDLE, null, null, null);
             setDisplayedMessages(actor, List.of());
-            telegram.sendText(chatId, "⬆️ Content delivered");
+            telegram.sendText(chatId, "✅ Successfully redeemed");
             sendMainNavigation(actor, chatId, "");
         }
         return redeemed;
     }
 
     private void finishCreation(User actor, long chatId, QrType type, List<Integer> storedMessageIds,
-                                PasswordHasher.PasswordValue passwordValue) {
+                                PasswordHasher.PasswordValue passwordValue, Boolean ignorePasswordCase) {
         var id = UUID.randomUUID().toString();
         var salt = passwordValue == null ? null : passwordValue.salt();
         var hash = passwordValue == null ? null : passwordValue.hash();
         var finalizedMessageIds = List.copyOf(storedMessageIds);
         var storedMessageId = finalizedMessageIds.get(0);
+        var contentItems = users.findById(actor.getId()).map(BotUser::pendingContentItems)
+                .filter(items -> !items.isEmpty()).map(List::copyOf).orElse(null);
+        var previewText = previewText(contentItems);
         var qrCode = qrCodes.insert(new QrCode(id, null, type, QrStatus.ACTIVE, actor.getId(),
                 properties.getContentChannelId(), storedMessageId, salt, hash, clock.instant(), 0,
-                List.copyOf(finalizedMessageIds), null));
-        deleteNavigation(actor.getId(), chatId);
+                List.copyOf(finalizedMessageIds), contentItems, null, null, null, null,
+                ignorePasswordCase, previewText));
         saveUser(actor, BotUser.State.IDLE, null, null, null);
         var link = deepLink(qrCode.id());
         telegram.sendPhoto(chatId, "qr-" + qrCode.id() + ".png",
@@ -434,8 +629,8 @@ public class QrWorkflow {
         var activeStatus = new Criteria().orOperator(Criteria.where("status").is(QrStatus.ACTIVE),
                 Criteria.where("status").exists(false), Criteria.where("status").is(null));
         var query = Query.query(Criteria.where("id").is(qrCode.id()).and("ownerId").is(actor.getId())
-                .and("type").is(QrType.ONE_TIME_CONTENT).andOperator(activeStatus));
-        var redeemed = mongo.findAndModify(query, new Update().set("status", QrStatus.REDEEMED),
+                .and("type").is(QrType.COUPON).andOperator(activeStatus));
+        var redeemed = mongo.findAndModify(query, redemptionUpdate(actor),
                 FindAndModifyOptions.options().returnNew(true), QrCode.class);
         if (redeemed == null) {
             return false;
@@ -451,10 +646,30 @@ public class QrWorkflow {
         }
     }
 
+    private boolean redeemOneTimeGift(QrCode qrCode, User actor, long chatId) {
+        var activeStatus = new Criteria().orOperator(Criteria.where("status").is(QrStatus.ACTIVE),
+                Criteria.where("status").exists(false), Criteria.where("status").is(null));
+        var query = Query.query(Criteria.where("id").is(qrCode.id())
+                .and("type").is(QrType.SINGLE_USE)
+                .andOperator(activeStatus));
+        var redeemed = mongo.findAndModify(query, redemptionUpdate(actor),
+                FindAndModifyOptions.options().returnNew(true), QrCode.class);
+        if (redeemed == null) {
+            return false;
+        }
+        try {
+            deliverAndRecord(redeemed, actor, chatId);
+            analytics.track(AnalyticsAction.ONE_TIME_REDEEMED, actor.getId(), chatId, redeemed);
+            return true;
+        } catch (RuntimeException exception) {
+            mongo.updateFirst(Query.query(Criteria.where("id").is(qrCode.id()).and("status").is(QrStatus.REDEEMED)),
+                    new Update().set("status", QrStatus.ACTIVE), QrCode.class);
+            throw exception;
+        }
+    }
+
     private void completeDelivery(QrCode qrCode, User actor, long chatId) {
-        deleteNavigation(actor.getId(), chatId);
         deliverAndRecord(qrCode, actor, chatId);
-        telegram.sendText(chatId, "⬆️ Content delivered");
         saveUser(actor, BotUser.State.IDLE, null, null, null);
         sendMainNavigation(actor, chatId, "");
     }
@@ -480,11 +695,25 @@ public class QrWorkflow {
                 row(button("📚 My QRs", MENU_LIST)))));
     }
 
-    private BotView contentReadyView(int count) {
-        return new BotView("⏳ Collecting content…\n\n📦 Items added: " + count
-                + "\nSend more items or tap Done.",
-                keyboard(List.of(row(button("✅ Done", CONTENT_DONE)),
+    private BotView contentReadyView(int count, String previewText) {
+        var preview = previewText == null || previewText.isBlank() ? "" : "\n📝 " + previewText;
+        return new BotView("⏳ Uploads processing…" + preview
+                + "\n\n📦 Attachments received: " + count,
+                keyboard(List.of(row(button("✅ Create with " + count + " attachments", CONTENT_DONE)),
                         row(button("❌ Cancel", MENU_HOME)))));
+    }
+
+    private void refreshUploadControl(User actor, long chatId, int count, String previewText,
+                                      boolean firstContentItem) {
+        var view = contentReadyView(count, previewText);
+        var navigationMessageId = users.findById(actor.getId()).map(BotUser::navigationMessageId).orElse(null);
+        if (firstContentItem || navigationMessageId == null) {
+            navigationMessageId = telegram.sendInline(chatId, view.text(), view.keyboard());
+        } else {
+            telegram.editInline(chatId, navigationMessageId, view.text(), view.keyboard());
+        }
+        setNavigationMessage(actor, navigationMessageId);
+        setDisplayedMessages(actor, List.of(navigationMessageId));
     }
 
     private void sendMainNavigation(User actor, long chatId, String prefix) {
@@ -508,14 +737,23 @@ public class QrWorkflow {
         if (preferences.types().size() < QrType.values().length) {
             criteria = criteria.and("type").in(preferences.types());
         }
-        criteria = criteria.and("status").is(QrStatus.ACTIVE);
+        if (preferences.statuses().isEmpty()) {
+            criteria = criteria.and("status").in(List.of("__NONE__"));
+        } else if (preferences.statuses().contains(QrStatus.ACTIVE)) {
+            var statuses = new ArrayList<QrStatus>(preferences.statuses());
+            criteria = criteria.andOperator(new Criteria().orOperator(Criteria.where("status").in(statuses),
+                    Criteria.where("status").exists(false), Criteria.where("status").is(null)));
+        } else {
+            criteria = criteria.and("status").in(preferences.statuses());
+        }
         var direction = preferences.sort() == QrListSort.NEWEST ? Sort.Direction.DESC : Sort.Direction.ASC;
         var query = Query.query(criteria).with(Sort.by(direction, "createdAt")).limit(10);
         return mongo.find(query, QrCode.class);
     }
 
     private QrListPreferences preferences(BotUser user) {
-        if (user.listPreferences() == null || user.listPreferences().types() == null) {
+        if (user.listPreferences() == null || user.listPreferences().types() == null
+                || user.listPreferences().statuses() == null) {
             return QrListPreferences.defaults();
         }
         return user.listPreferences();
@@ -524,8 +762,8 @@ public class QrWorkflow {
     private String typeEmoji(QrType type) {
         return switch (type) {
             case CONTENT -> "📄";
-            case PROTECTED_CONTENT -> "🔐";
-            case ONE_TIME_CONTENT -> "🎟️";
+            case SINGLE_USE -> "1️⃣";
+            case COUPON -> "🎟️";
         };
     }
 
@@ -534,15 +772,63 @@ public class QrWorkflow {
         return button(check + " " + typeEmoji(type) + " " + typeLabel(type), FILTER_TYPE_PREFIX + type);
     }
 
+    private InlineKeyboardButton groupedTypeCheckboxButton(QrType type, Set<QrType> selectedTypes) {
+        var group = typeGroup(type);
+        var check = selectedTypes.containsAll(group) ? "☑️" : "⬜";
+        return button(check + " " + typeEmoji(type) + " " + typeLabel(type), FILTER_TYPE_PREFIX + type);
+    }
+
+    private Set<QrType> typeGroup(QrType type) {
+        return EnumSet.of(type);
+    }
+
+    private InlineKeyboardButton statusCheckboxButton(QrStatus status, Set<QrStatus> selectedStatuses) {
+        var check = selectedStatuses.contains(status) ? "☑️" : "⬜";
+        return button(check + " " + statusEmoji(status) + " " + status, FILTER_STATUS_PREFIX + status);
+    }
+
+    private String statusEmoji(QrStatus status) {
+        return switch (status) {
+            case ACTIVE -> "✅";
+            case REDEEMED -> "☑️";
+            case DELETED -> "🗑️";
+        };
+    }
+
+    private Update redemptionUpdate(User actor) {
+        return new Update().set("status", QrStatus.REDEEMED)
+                .set("redeemedByUserId", actor.getId())
+                .set("redeemedByUsername", actor.getUsername())
+                .set("redeemedByName", displayName(actor))
+                .set("redeemedAt", clock.instant());
+    }
+
+    private String redeemedBy(QrCode qrCode) {
+        var username = qrCode.redeemedByUsername() == null ? "no username" : "@" + qrCode.redeemedByUsername();
+        var name = qrCode.redeemedByName() == null || qrCode.redeemedByName().isBlank()
+                ? "Unknown name" : qrCode.redeemedByName();
+        return name + " · " + username + " · ID " + qrCode.redeemedByUserId();
+    }
+
+    private String displayName(User actor) {
+        return java.util.stream.Stream.of(actor.getFirstName(), actor.getLastName())
+                .filter(value -> value != null && !value.isBlank())
+                .collect(java.util.stream.Collectors.joining(" "));
+    }
+
     private QrStatus effectiveStatus(QrCode qrCode) {
         return qrCode.status() == null ? QrStatus.ACTIVE : qrCode.status();
+    }
+
+    private boolean isPasswordProtected(QrCode qrCode) {
+        return qrCode.passwordSalt() != null && qrCode.passwordHash() != null;
     }
 
     private String typeLabel(QrType type) {
         return switch (type) {
             case CONTENT -> "Content";
-            case PROTECTED_CONTENT -> "Protected";
-            case ONE_TIME_CONTENT -> "One-time";
+            case SINGLE_USE -> "Single-use QR";
+            case COUPON -> "Coupon";
         };
     }
 
@@ -570,7 +856,8 @@ public class QrWorkflow {
             users.save(new BotUser(current.id(), actor.getUsername(), current.state(), current.selectedType(),
                     current.channelMessageId(), current.pendingQrId(), preferences(current),
                     current.navigationMessageId(), clock.instant(), current.pendingMessageIds(),
-                    current.pendingMediaGroupId(), current.displayedMessageIds(), current.pendingContentItems()));
+                    current.pendingMediaGroupId(), current.displayedMessageIds(), current.pendingContentItems(),
+                    current.pendingPasswordOptions()));
         }
     }
 
@@ -586,12 +873,13 @@ public class QrWorkflow {
                 listPreferences, users.findById(actor.getId()).map(BotUser::navigationMessageId).orElse(null),
                 clock.instant(), pendingMessageIds, pendingMediaGroupId,
                 users.findById(actor.getId()).map(BotUser::displayedMessageIds).orElse(null),
-                users.findById(actor.getId()).map(BotUser::pendingContentItems).orElse(null)));
+                users.findById(actor.getId()).map(BotUser::pendingContentItems).orElse(null),
+                users.findById(actor.getId()).map(BotUser::pendingPasswordOptions).orElse(null)));
     }
 
     private void resetUser(User actor) {
         users.save(new BotUser(actor.getId(), actor.getUsername(), BotUser.State.IDLE,
-                null, null, null, QrListPreferences.defaults(), null, clock.instant(), null, null, null, null));
+                null, null, null, QrListPreferences.defaults(), null, clock.instant(), null, null, null, null, null));
     }
 
     private void setNavigationMessage(User actor, int messageId) {
@@ -599,7 +887,7 @@ public class QrWorkflow {
         users.save(new BotUser(user.id(), actor.getUsername(), user.state(), user.selectedType(),
                 user.channelMessageId(), user.pendingQrId(), preferences(user), messageId, clock.instant(),
                 user.pendingMessageIds(), user.pendingMediaGroupId(), user.displayedMessageIds(),
-                user.pendingContentItems()));
+                user.pendingContentItems(), user.pendingPasswordOptions()));
     }
 
     private void setDisplayedMessages(User actor, List<Integer> messageIds) {
@@ -607,7 +895,15 @@ public class QrWorkflow {
         users.save(new BotUser(user.id(), actor.getUsername(), user.state(), user.selectedType(),
                 user.channelMessageId(), user.pendingQrId(), preferences(user), user.navigationMessageId(),
                 clock.instant(), user.pendingMessageIds(), user.pendingMediaGroupId(), List.copyOf(messageIds),
-                user.pendingContentItems()));
+                user.pendingContentItems(), user.pendingPasswordOptions()));
+    }
+
+    private void setPendingPasswordOptions(User actor, PendingPasswordOptions options) {
+        var user = users.findById(actor.getId()).orElseThrow();
+        users.save(new BotUser(user.id(), actor.getUsername(), user.state(), user.selectedType(),
+                user.channelMessageId(), user.pendingQrId(), preferences(user), user.navigationMessageId(),
+                clock.instant(), user.pendingMessageIds(), user.pendingMediaGroupId(), user.displayedMessageIds(),
+                user.pendingContentItems(), options));
     }
 
     private void deleteNavigation(long userId, long chatId) {
@@ -639,11 +935,40 @@ public class QrWorkflow {
     }
 
     private String requirePassword(Message message) {
-        var password = message.getText();
+        var password = message.getText() == null ? null : message.getText().strip();
         if (password == null || password.isBlank()) {
             throw new IllegalArgumentException("Password/code must be text");
         }
+        if (password.startsWith("/")) {
+            throw new IllegalArgumentException("Password/code cannot start with a slash");
+        }
         return password;
+    }
+
+    private PendingPasswordOptions passwordOptions(String password) {
+        var exact = passwords.hash(normalizePassword(password, false));
+        var normalized = passwords.hash(normalizePassword(password, true));
+        return new PendingPasswordOptions(exact.salt(), exact.hash(), normalized.salt(), normalized.hash());
+    }
+
+    private PasswordHasher.PasswordValue selectedPassword(PendingPasswordOptions options, boolean ignoreCase) {
+        if (options == null) {
+            throw new IllegalStateException("Pending password options are missing");
+        }
+        return ignoreCase
+                ? new PasswordHasher.PasswordValue(options.normalizedSalt(), options.normalizedHash())
+                : new PasswordHasher.PasswordValue(options.exactSalt(), options.exactHash());
+    }
+
+    private String normalizePassword(String password, boolean ignoreCase) {
+        var normalized = password.strip();
+        return ignoreCase ? normalized.toLowerCase(java.util.Locale.ROOT) : normalized;
+    }
+
+    private InlineKeyboard caseChoiceKeyboard(String prefix) {
+        return keyboard(List.of(row(button("✅ Yes, ignore case", prefix + "ignore")),
+                row(button("🔠 No, match case", prefix + "exact")),
+                row(button("❌ Cancel", MENU_HOME))));
     }
 
     private QrContentItem contentItem(Message message, int order) {
@@ -664,6 +989,54 @@ public class QrWorkflow {
             return new QrContentItem(QrContentItem.Kind.TEXT, message.getText(), null, null, null, order);
         }
         throw new IllegalArgumentException("Unsupported QR content message type");
+    }
+
+    private String contentLimitViolation(List<QrContentItem> items) {
+        if (items.size() > MAX_CONTENT_ITEMS) {
+            return "A QR can contain at most " + MAX_CONTENT_ITEMS + " messages/items.";
+        }
+        var photoAndVideoCount = items.stream().filter(item -> item.kind() == QrContentItem.Kind.PHOTO
+                || item.kind() == QrContentItem.Kind.VIDEO).count();
+        if (photoAndVideoCount > MAX_MEDIA_ITEMS) {
+            return "A QR can contain at most 10 photos/videos.";
+        }
+        var documentCount = items.stream().filter(item -> item.kind() == QrContentItem.Kind.DOCUMENT).count();
+        if (documentCount > MAX_MEDIA_ITEMS) {
+            return "A QR can contain at most 10 documents.";
+        }
+        var oversizedText = items.stream().filter(item -> item.kind() == QrContentItem.Kind.TEXT)
+                .map(QrContentItem::text).filter(java.util.Objects::nonNull)
+                .anyMatch(text -> text.length() > MAX_TEXT_LENGTH);
+        if (oversizedText) {
+            return "Each text message can contain at most 4,096 characters.";
+        }
+        var oversizedCaption = items.stream().filter(item -> item.kind() != QrContentItem.Kind.TEXT)
+                .map(QrContentItem::caption).filter(java.util.Objects::nonNull)
+                .anyMatch(caption -> caption.length() > MAX_MEDIA_CAPTION_LENGTH);
+        if (oversizedCaption) {
+            return "Each media caption can contain at most 1,024 characters.";
+        }
+        return null;
+    }
+
+    private String previewText(List<QrContentItem> items) {
+        if (items == null) {
+            return null;
+        }
+        var value = items.stream().map(item -> item.kind() == QrContentItem.Kind.TEXT
+                        ? item.text() : item.caption())
+                .filter(text -> text != null && !text.isBlank()).findFirst().orElse(null);
+        if (value == null) {
+            return null;
+        }
+        return truncate(value.replaceAll("\\s+", " ").strip(), 30);
+    }
+
+    private String truncate(String value, int maxLength) {
+        if (value == null || value.length() <= maxLength) {
+            return value;
+        }
+        return value.substring(0, maxLength - 1) + "…";
     }
 
     private ArrayList<Integer> previewContent(QrCode qrCode, long chatId) {
