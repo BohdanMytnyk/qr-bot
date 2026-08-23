@@ -54,11 +54,13 @@ public class QrWorkflow {
     public static final String FILTER_TYPE_PREFIX = "list:type:";
     public static final String FILTER_STATUS_PREFIX = "list:status:";
     public static final String SORT_PREFIX = "list:sort:";
+    public static final String PAGE_PREFIX = "list:page:";
     public static final String CREATION_CASE_PREFIX = "create:password-case:";
     public static final String CHANGE_CASE_PREFIX = "list:password-case:";
     public static final String PROTECTION_PREFIX = "create:protection:";
     private static final Logger log = LoggerFactory.getLogger(QrWorkflow.class);
     private static final int MAX_CONTENT_ITEMS = 10;
+    private static final int QR_LIST_PAGE_SIZE = 5;
     private static final int MAX_MEDIA_ITEMS = 10;
     private static final int MAX_TEXT_LENGTH = 4096;
     private static final int MAX_MEDIA_CAPTION_LENGTH = 1024;
@@ -280,11 +282,16 @@ public class QrWorkflow {
         touchUser(actor);
         var user = users.findById(actor.getId()).orElseThrow();
         var preferences = preferences(user);
+        var totalCount = filteredQrCount(actor.getId(), preferences);
+        var totalPages = Math.max(1, (int) Math.ceil((double) totalCount / QR_LIST_PAGE_SIZE));
+        var page = Math.min(preferences.page(), totalPages - 1);
+        if (page != preferences.page()) {
+            preferences = new QrListPreferences(preferences.types(), preferences.statuses(), preferences.sort(), page);
+        }
         var all = filteredQrs(actor.getId(), preferences);
-        var activeCount = countActive(actor.getId());
-        var text = new StringBuilder("📚 Your QRs\n\n✅ Active: ").append(activeCount)
-                .append("\n👁 Showing: ").append(all.size())
-                .append("\n📅 Created: ").append(preferences.sort() == QrListSort.NEWEST ? "newest first" : "oldest first");
+        var text = new StringBuilder("📚 Your QRs\n\n🔎 Found: ").append(totalCount)
+                .append("\n\n📄 Content · 1️⃣ Single-use · 🎟️ Coupon")
+                .append("\n✅ Active · 🏁 Redeemed · 🔒 Protected · 📎 Attachments");
         var rows = new ArrayList<List<InlineKeyboardButton>>();
         rows.add(row(
                 groupedTypeCheckboxButton(QrType.CONTENT, preferences.types()),
@@ -292,26 +299,27 @@ public class QrWorkflow {
                 groupedTypeCheckboxButton(QrType.COUPON, preferences.types())));
         rows.add(row(statusCheckboxButton(QrStatus.ACTIVE, preferences.statuses()),
                 statusCheckboxButton(QrStatus.REDEEMED, preferences.statuses())));
-        rows.add(row(button(preferences.sort() == QrListSort.NEWEST ? "📅 ↓ Newest" : "📅 ↑ Oldest",
+        rows.add(row(button(preferences.sort() == QrListSort.NEWEST
+                        ? "📅 Newest first ↓" : "📅 Oldest first ↑",
                 SORT_PREFIX + (preferences.sort() == QrListSort.NEWEST
                         ? QrListSort.OLDEST : QrListSort.NEWEST))));
-        var index = 1;
+        var index = page * QR_LIST_PAGE_SIZE + 1;
         for (var qrCode : all) {
-            var description = index + ". " + typeEmoji(qrCode.type()) + " " + typeLabel(qrCode.type()) + " · "
-                    + statusEmoji(effectiveStatus(qrCode)) + " " + effectiveStatus(qrCode) + " · 👁 " + qrCode.openCount();
-            if (qrCode.previewText() != null && !qrCode.previewText().isBlank()) {
-                description += " · " + qrCode.previewText();
-            }
-            description = truncate(description, 64);
-            rows.add(row(button(description, VIEW_PREFIX + qrCode.id())));
+            var callback = VIEW_PREFIX + qrCode.id();
+            rows.add(row(button(index + ". " + itemMetadata(qrCode), callback),
+                    button(itemPreview(qrCode), callback)));
             index++;
         }
         if (all.isEmpty()) {
             text.append("\n\n📭 No QRs match these filters.");
         }
+        rows.add(row(button(page > 0 ? "⬅️" : "·", page > 0 ? PAGE_PREFIX + (page - 1) : NOOP),
+                button((page + 1) + "/" + totalPages, NOOP),
+                button(page + 1 < totalPages ? "➡️" : "·",
+                        page + 1 < totalPages ? PAGE_PREFIX + (page + 1) : NOOP)));
         rows.add(row(button("🏠 Main menu", MENU_HOME)));
         analytics.track(AnalyticsAction.QR_LIST_VIEWED, actor.getId(), chatId, null,
-                Map.of("activeCount", Long.toString(activeCount)));
+                Map.of("filteredCount", Long.toString(totalCount)));
         return new BotView(text.toString(), keyboard(rows));
     }
 
@@ -324,6 +332,7 @@ public class QrWorkflow {
         var statuses = EnumSet.noneOf(QrStatus.class);
         statuses.addAll(current.statuses());
         var sort = current.sort();
+        var page = current.page();
         if (callbackData.startsWith(FILTER_TYPE_PREFIX)) {
             var type = QrType.valueOf(callbackData.substring(FILTER_TYPE_PREFIX.length()));
             var group = typeGroup(type);
@@ -332,16 +341,21 @@ public class QrWorkflow {
             } else {
                 types.addAll(group);
             }
+            page = 0;
         } else if (callbackData.startsWith(SORT_PREFIX)) {
             sort = QrListSort.valueOf(callbackData.substring(SORT_PREFIX.length()));
+            page = 0;
         } else if (callbackData.startsWith(FILTER_STATUS_PREFIX)) {
             var status = QrStatus.valueOf(callbackData.substring(FILTER_STATUS_PREFIX.length()));
             if (!statuses.remove(status)) {
                 statuses.add(status);
             }
+            page = 0;
+        } else if (callbackData.startsWith(PAGE_PREFIX)) {
+            page = Math.max(0, Integer.parseInt(callbackData.substring(PAGE_PREFIX.length())));
         }
         users.save(new BotUser(user.id(), actor.getUsername(), user.state(), user.selectedType(),
-                user.channelMessageId(), user.pendingQrId(), new QrListPreferences(types, statuses, sort),
+                user.channelMessageId(), user.pendingQrId(), new QrListPreferences(types, statuses, sort, page),
                 user.navigationMessageId(), clock.instant(), user.pendingMessageIds(), user.pendingMediaGroupId(),
                 user.displayedMessageIds(), user.pendingContentItems(), user.pendingPasswordOptions()));
         return listCreatedQrs(actor, chatId);
@@ -726,13 +740,19 @@ public class QrWorkflow {
         return qrCodes.findById(payload).orElseGet(() -> qrCodes.findByToken(payload).orElse(null));
     }
 
-    private long countActive(long ownerId) {
-        var status = new Criteria().orOperator(Criteria.where("status").is(QrStatus.ACTIVE),
-                Criteria.where("status").exists(false), Criteria.where("status").is(null));
-        return mongo.count(Query.query(Criteria.where("ownerId").is(ownerId).andOperator(status)), QrCode.class);
+    private List<QrCode> filteredQrs(long ownerId, QrListPreferences preferences) {
+        var criteria = filteredQrCriteria(ownerId, preferences);
+        var direction = preferences.sort() == QrListSort.NEWEST ? Sort.Direction.DESC : Sort.Direction.ASC;
+        var query = Query.query(criteria).with(Sort.by(direction, "createdAt"))
+                .skip((long) preferences.page() * QR_LIST_PAGE_SIZE).limit(QR_LIST_PAGE_SIZE);
+        return mongo.find(query, QrCode.class);
     }
 
-    private List<QrCode> filteredQrs(long ownerId, QrListPreferences preferences) {
+    private long filteredQrCount(long ownerId, QrListPreferences preferences) {
+        return mongo.count(Query.query(filteredQrCriteria(ownerId, preferences)), QrCode.class);
+    }
+
+    private Criteria filteredQrCriteria(long ownerId, QrListPreferences preferences) {
         var criteria = Criteria.where("ownerId").is(ownerId);
         if (preferences.types().size() < QrType.values().length) {
             criteria = criteria.and("type").in(preferences.types());
@@ -746,9 +766,7 @@ public class QrWorkflow {
         } else {
             criteria = criteria.and("status").in(preferences.statuses());
         }
-        var direction = preferences.sort() == QrListSort.NEWEST ? Sort.Direction.DESC : Sort.Direction.ASC;
-        var query = Query.query(criteria).with(Sort.by(direction, "createdAt")).limit(10);
-        return mongo.find(query, QrCode.class);
+        return criteria;
     }
 
     private QrListPreferences preferences(BotUser user) {
@@ -790,9 +808,43 @@ public class QrWorkflow {
     private String statusEmoji(QrStatus status) {
         return switch (status) {
             case ACTIVE -> "✅";
-            case REDEEMED -> "☑️";
+            case REDEEMED -> "🏁";
             case DELETED -> "🗑️";
         };
+    }
+
+    private String itemMetadata(QrCode qrCode) {
+        var metadata = new StringBuilder(typeEmoji(qrCode.type()) + " " + statusEmoji(effectiveStatus(qrCode)));
+        if (isPasswordProtected(qrCode)) {
+            metadata.append(" 🔒");
+        }
+        return metadata.toString();
+    }
+
+    private String itemPreview(QrCode qrCode) {
+        var preview = shortPreview(qrCode.previewText());
+        var fileCount = qrCode.contentItems() == null ? qrCode.contentMessageIds().size()
+                : qrCode.contentItems().stream().filter(item -> item.kind() != QrContentItem.Kind.TEXT).count();
+        var content = new StringBuilder(preview);
+        if (!preview.isBlank()) {
+            content.append(fileCount > 0 ? " " : "");
+        }
+        if (fileCount > 0) {
+            content.append("📎 ").append(fileCount);
+        }
+        return content.isEmpty() ? "Open" : truncate(content.toString(), 64);
+    }
+
+    private String shortPreview(String value) {
+        if (value == null || value.isBlank()) {
+            return "";
+        }
+        var normalized = value.strip();
+        var characterCount = normalized.codePointCount(0, normalized.length());
+        if (characterCount <= 5) {
+            return normalized;
+        }
+        return normalized.substring(0, normalized.offsetByCodePoints(0, 5)) + "...";
     }
 
     private Update redemptionUpdate(User actor) {
