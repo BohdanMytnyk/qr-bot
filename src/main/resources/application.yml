@@ -1,0 +1,18 @@
+spring:
+  application:
+    name: qr-bot
+  data:
+    mongodb:
+      uri: ${MONGODB_URI:mongodb://localhost:27017/qr_bot}
+      auto-index-creation: true
+telegram:
+  token: ${TELEGRAM_BOT_TOKEN}
+  bot-username: ${TELEGRAM_BOT_USERNAME}
+  content-channel-id: ${TELEGRAM_CONTENT_CHANNEL_ID}
+  restart-notification-chat-id: ${TELEGRAM_RESTART_NOTIFICATION_CHAT_ID:0}
+  polling:
+    enabled: true
+    fixed-delay: 1000
+logging:
+  level:
+    ua.mytnyk.qrbot: ${QR_BOT_LOG_LEVEL:INFO}

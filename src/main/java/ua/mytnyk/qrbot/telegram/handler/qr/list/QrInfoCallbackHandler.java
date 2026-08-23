@@ -1,0 +1,27 @@
+package ua.mytnyk.qrbot.telegram.handler.qr.list;
+
+import org.springframework.core.annotation.Order;
+import org.springframework.stereotype.Component;
+import ua.mytnyk.qrbot.service.QrWorkflow;
+import ua.mytnyk.qrbot.telegram.TelegramGateway;
+import ua.mytnyk.qrbot.telegram.handler.CallbackHandler;
+import ua.mytnyk.telegram.common.model.common.webhook.UpdateWebhook;
+
+@Order(10)
+@Component
+public class QrInfoCallbackHandler implements CallbackHandler {
+    private final TelegramGateway telegram;
+
+    public QrInfoCallbackHandler(TelegramGateway telegram) {
+        this.telegram = telegram;
+    }
+
+    public boolean supports(UpdateWebhook update) {
+        return update.getCallbackQuery() != null
+                && QrWorkflow.NOOP.equals(update.getCallbackQuery().getData());
+    }
+
+    public void handle(UpdateWebhook update) {
+        telegram.answerCallback(update.getCallbackQuery().getId(), null);
+    }
+}

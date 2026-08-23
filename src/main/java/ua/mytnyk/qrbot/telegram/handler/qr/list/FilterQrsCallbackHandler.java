@@ -1,0 +1,43 @@
+package ua.mytnyk.qrbot.telegram.handler.qr.list;
+
+import java.util.Set;
+import org.springframework.core.annotation.Order;
+import org.springframework.stereotype.Component;
+import ua.mytnyk.qrbot.domain.QrListSort;
+import ua.mytnyk.qrbot.domain.QrType;
+import ua.mytnyk.qrbot.service.QrWorkflow;
+import ua.mytnyk.qrbot.telegram.TelegramGateway;
+import ua.mytnyk.qrbot.telegram.handler.CallbackHandler;
+import ua.mytnyk.telegram.common.model.common.webhook.UpdateWebhook;
+
+@Order(10)
+@Component
+public class FilterQrsCallbackHandler implements CallbackHandler {
+    private static final Set<String> SUPPORTED_DATA = Set.of(
+            QrWorkflow.FILTER_TYPE_PREFIX + QrType.CONTENT,
+            QrWorkflow.FILTER_TYPE_PREFIX + QrType.PROTECTED_CONTENT,
+            QrWorkflow.FILTER_TYPE_PREFIX + QrType.ONE_TIME_CONTENT,
+            QrWorkflow.SORT_PREFIX + QrListSort.NEWEST,
+            QrWorkflow.SORT_PREFIX + QrListSort.OLDEST);
+    private final QrWorkflow workflow;
+    private final TelegramGateway telegram;
+
+    public FilterQrsCallbackHandler(QrWorkflow workflow, TelegramGateway telegram) {
+        this.workflow = workflow;
+        this.telegram = telegram;
+    }
+
+    public boolean supports(UpdateWebhook update) {
+        return update.getCallbackQuery() != null
+                && SUPPORTED_DATA.contains(update.getCallbackQuery().getData());
+    }
+
+    public void handle(UpdateWebhook update) {
+        var callback = update.getCallbackQuery();
+        var view = workflow.updateListPreferences(callback.getFrom(),
+                callback.getMessage().getChat().getId(), callback.getData());
+        workflow.replaceNavigation(callback.getFrom(), callback.getMessage().getChat().getId(),
+                callback.getMessage().getMessageId(), callback.getMessage().getText() != null, view);
+        telegram.answerCallback(callback.getId(), null);
+    }
+}
