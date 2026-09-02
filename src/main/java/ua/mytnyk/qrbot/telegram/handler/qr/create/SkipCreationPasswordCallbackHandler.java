@@ -3,7 +3,7 @@ package ua.mytnyk.qrbot.telegram.handler.qr.create;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 import ua.mytnyk.qrbot.service.QrWorkflow;
-import ua.mytnyk.qrbot.telegram.TelegramGateway;
+import ua.mytnyk.telegram.common.client.TelegramClient;
 import ua.mytnyk.telegram.common.handler.UpdateHandler;
 import ua.mytnyk.telegram.common.model.common.webhook.UpdateWebhook;
 
@@ -11,9 +11,9 @@ import ua.mytnyk.telegram.common.model.common.webhook.UpdateWebhook;
 @Component
 public class SkipCreationPasswordCallbackHandler implements UpdateHandler {
     private final QrWorkflow workflow;
-    private final TelegramGateway telegram;
+    private final TelegramClient telegram;
 
-    public SkipCreationPasswordCallbackHandler(QrWorkflow workflow, TelegramGateway telegram) {
+    public SkipCreationPasswordCallbackHandler(QrWorkflow workflow, TelegramClient telegram) {
         this.workflow = workflow;
         this.telegram = telegram;
     }

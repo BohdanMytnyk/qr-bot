@@ -3,16 +3,16 @@ package ua.mytnyk.qrbot.telegram.handler.qr.list;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 import ua.mytnyk.qrbot.service.QrWorkflow;
-import ua.mytnyk.qrbot.telegram.TelegramGateway;
+import ua.mytnyk.telegram.common.client.TelegramClient;
 import ua.mytnyk.telegram.common.handler.UpdateHandler;
 import ua.mytnyk.telegram.common.model.common.webhook.UpdateWebhook;
 
 @Order(10)
 @Component
 public class QrInfoCallbackHandler implements UpdateHandler {
-    private final TelegramGateway telegram;
+    private final TelegramClient telegram;
 
-    public QrInfoCallbackHandler(TelegramGateway telegram) {
+    public QrInfoCallbackHandler(TelegramClient telegram) {
         this.telegram = telegram;
     }
 

@@ -7,7 +7,7 @@ import ua.mytnyk.qrbot.domain.QrListSort;
 import ua.mytnyk.qrbot.domain.QrType;
 import ua.mytnyk.qrbot.domain.QrStatus;
 import ua.mytnyk.qrbot.service.QrWorkflow;
-import ua.mytnyk.qrbot.telegram.TelegramGateway;
+import ua.mytnyk.telegram.common.client.TelegramClient;
 import ua.mytnyk.telegram.common.handler.UpdateHandler;
 import ua.mytnyk.telegram.common.model.common.webhook.UpdateWebhook;
 
@@ -23,9 +23,9 @@ public class FilterQrsCallbackHandler implements UpdateHandler {
             QrWorkflow.SORT_PREFIX + QrListSort.NEWEST,
             QrWorkflow.SORT_PREFIX + QrListSort.OLDEST);
     private final QrWorkflow workflow;
-    private final TelegramGateway telegram;
+    private final TelegramClient telegram;
 
-    public FilterQrsCallbackHandler(QrWorkflow workflow, TelegramGateway telegram) {
+    public FilterQrsCallbackHandler(QrWorkflow workflow, TelegramClient telegram) {
         this.workflow = workflow;
         this.telegram = telegram;
     }

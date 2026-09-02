@@ -3,13 +3,16 @@ package ua.mytnyk.qrbot.service;
 import org.springframework.stereotype.Component;
 import ua.mytnyk.qrbot.domain.QrCode;
 import ua.mytnyk.qrbot.domain.QrType;
-import ua.mytnyk.qrbot.telegram.TelegramGateway;
+import ua.mytnyk.qrbot.telegram.QrContentTelegramService;
+import ua.mytnyk.telegram.common.client.TelegramClient;
 
 @Component
 public class ContentQrDeliveryStrategy implements ContentDeliveryStrategy {
-    private final TelegramGateway telegram;
-    public ContentQrDeliveryStrategy(TelegramGateway telegram) {
+    private final TelegramClient telegram;
+    private final QrContentTelegramService contentTelegram;
+    public ContentQrDeliveryStrategy(TelegramClient telegram, QrContentTelegramService contentTelegram) {
         this.telegram = telegram;
+        this.contentTelegram = contentTelegram;
     }
 
     public boolean supports(QrCode qrCode) {
@@ -19,7 +22,7 @@ public class ContentQrDeliveryStrategy implements ContentDeliveryStrategy {
     }
     public void deliver(QrCode qrCode, long targetChatId) {
         if (qrCode.contentItems() != null && !qrCode.contentItems().isEmpty()) {
-            telegram.sendContent(targetChatId, qrCode.contentItems());
+            contentTelegram.sendContent(targetChatId, qrCode.contentItems());
             return;
         }
         telegram.copyMessages(targetChatId, qrCode.channelId(), qrCode.contentMessageIds());

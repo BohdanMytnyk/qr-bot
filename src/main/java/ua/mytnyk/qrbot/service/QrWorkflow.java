@@ -33,7 +33,8 @@ import ua.mytnyk.qrbot.domain.PendingPasswordOptions;
 import ua.mytnyk.qrbot.repository.BotUserRepository;
 import ua.mytnyk.qrbot.repository.QrAccessRepository;
 import ua.mytnyk.qrbot.repository.QrCodeRepository;
-import ua.mytnyk.qrbot.telegram.TelegramGateway;
+import ua.mytnyk.qrbot.telegram.QrContentTelegramService;
+import ua.mytnyk.telegram.common.client.TelegramClient;
 import ua.mytnyk.telegram.common.model.common.api.markup.keyboard.inline.InlineKeyboard;
 import ua.mytnyk.telegram.common.model.common.api.markup.keyboard.inline.InlineKeyboardButton;
 import ua.mytnyk.telegram.common.model.common.webhook.Message;
@@ -73,7 +74,8 @@ public class QrWorkflow {
     private final QrAccessRepository accesses;
     private final PasswordHasher passwords;
     private final QrImageGenerator imageGenerator;
-    private final TelegramGateway telegram;
+    private final TelegramClient telegram;
+    private final QrContentTelegramService contentTelegram;
     private final QrBotProperties properties;
     private final List<ContentDeliveryStrategy> deliveryStrategies;
     private final MongoTemplate mongo;
@@ -81,7 +83,8 @@ public class QrWorkflow {
     private final Clock clock = Clock.systemUTC();
 
     public QrWorkflow(BotUserRepository users, QrCodeRepository qrCodes, QrAccessRepository accesses,
-                      PasswordHasher passwords, QrImageGenerator imageGenerator, TelegramGateway telegram,
+                      PasswordHasher passwords, QrImageGenerator imageGenerator, TelegramClient telegram,
+                      QrContentTelegramService contentTelegram,
                       QrBotProperties properties, List<ContentDeliveryStrategy> deliveryStrategies,
                       MongoTemplate mongo, QrAnalytics analytics) {
         this.users = users;
@@ -90,6 +93,7 @@ public class QrWorkflow {
         this.passwords = passwords;
         this.imageGenerator = imageGenerator;
         this.telegram = telegram;
+        this.contentTelegram = contentTelegram;
         this.properties = properties;
         this.deliveryStrategies = deliveryStrategies;
         this.mongo = mongo;
@@ -195,7 +199,7 @@ public class QrWorkflow {
                     message.getFrom().getId(), message.getMessageId(), message.getMediaGroupId(), limitViolation);
             return;
         }
-        var newStoredMessageIds = telegram.sendContent(properties.getContentChannelId(), List.of(contentItem));
+        var newStoredMessageIds = contentTelegram.sendContent(properties.getContentChannelId(), List.of(contentItem));
         var storedMessageIds = new ArrayList<Integer>();
         if (user.pendingMessageIds() != null) {
             storedMessageIds.addAll(user.pendingMessageIds());
@@ -1106,7 +1110,7 @@ public class QrWorkflow {
     private ArrayList<Integer> previewContent(QrCode qrCode, long chatId) {
         var messageIds = new ArrayList<Integer>();
         if (qrCode.contentItems() != null && !qrCode.contentItems().isEmpty()) {
-            messageIds.addAll(telegram.sendContent(chatId, qrCode.contentItems()));
+            messageIds.addAll(contentTelegram.sendContent(chatId, qrCode.contentItems()));
             return messageIds;
         }
         messageIds.addAll(telegram.copyMessages(chatId, qrCode.channelId(), qrCode.contentMessageIds()));

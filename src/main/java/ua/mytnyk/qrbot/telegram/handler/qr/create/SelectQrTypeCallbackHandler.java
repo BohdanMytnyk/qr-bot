@@ -4,7 +4,7 @@ import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 import ua.mytnyk.qrbot.domain.QrType;
 import ua.mytnyk.qrbot.service.QrWorkflow;
-import ua.mytnyk.qrbot.telegram.TelegramGateway;
+import ua.mytnyk.telegram.common.client.TelegramClient;
 import ua.mytnyk.telegram.common.handler.UpdateHandler;
 import ua.mytnyk.telegram.common.model.common.webhook.UpdateWebhook;
 import java.util.Set;
@@ -17,9 +17,9 @@ public class SelectQrTypeCallbackHandler implements UpdateHandler {
             QrWorkflow.TYPE_PREFIX + QrType.SINGLE_USE,
             QrWorkflow.TYPE_PREFIX + QrType.COUPON);
     private final QrWorkflow workflow;
-    private final TelegramGateway telegram;
+    private final TelegramClient telegram;
 
-    public SelectQrTypeCallbackHandler(QrWorkflow workflow, TelegramGateway telegram) {
+    public SelectQrTypeCallbackHandler(QrWorkflow workflow, TelegramClient telegram) {
         this.workflow = workflow;
         this.telegram = telegram;
     }

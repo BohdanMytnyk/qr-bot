@@ -6,7 +6,7 @@ import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClientResponseException;
 import ua.mytnyk.qrbot.service.QrWorkflow;
-import ua.mytnyk.qrbot.telegram.TelegramGateway;
+import ua.mytnyk.telegram.common.client.TelegramClient;
 import ua.mytnyk.telegram.common.handler.UpdateHandler;
 import ua.mytnyk.telegram.common.model.common.webhook.UpdateWebhook;
 
@@ -16,9 +16,9 @@ public class OpenQrCommandHandler implements UpdateHandler {
     private static final Pattern START_PAYLOAD = Pattern.compile(
             "^/start(?:@\\w+)?\\s+([0-9a-fA-F-]{36}|[A-Za-z0-9_-]{43})$");
     private final QrWorkflow workflow;
-    private final TelegramGateway telegram;
+    private final TelegramClient telegram;
 
-    public OpenQrCommandHandler(QrWorkflow workflow, TelegramGateway telegram) {
+    public OpenQrCommandHandler(QrWorkflow workflow, TelegramClient telegram) {
         this.workflow = workflow;
         this.telegram = telegram;
     }
