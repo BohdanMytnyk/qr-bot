@@ -46,12 +46,7 @@ public class QrContentTelegramService {
     }
 
     private TelegramMedia toTelegramMedia(QrContentItem item) {
-        TelegramMedia.Type type = switch (item.kind()) {
-            case PHOTO -> TelegramMedia.Type.PHOTO;
-            case VIDEO -> TelegramMedia.Type.VIDEO;
-            case DOCUMENT -> TelegramMedia.Type.DOCUMENT;
-            case TEXT -> throw new IllegalArgumentException("Text is not media");
-        };
+        TelegramMedia.Type type = TelegramMedia.Type.valueOf(item.kind().name());
         return new TelegramMedia(type, item.fileId(), item.caption());
     }
 }

@@ -32,6 +32,7 @@ public class FilterQrsCallbackHandler implements UpdateHandler {
 
     public boolean supports(UpdateWebhook update) {
         return update.getCallbackQuery() != null
+                && update.getCallbackQuery().getData() != null
                 && (SUPPORTED_DATA.contains(update.getCallbackQuery().getData())
                 || update.getCallbackQuery().getData().matches("^" + QrWorkflow.PAGE_PREFIX + "\\d+$"));
     }

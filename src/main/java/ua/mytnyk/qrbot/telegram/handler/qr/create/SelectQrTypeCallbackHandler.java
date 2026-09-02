@@ -26,6 +26,7 @@ public class SelectQrTypeCallbackHandler implements UpdateHandler {
 
     public boolean supports(UpdateWebhook update) {
         return update.getCallbackQuery() != null
+                && update.getCallbackQuery().getData() != null
                 && SUPPORTED_DATA.contains(update.getCallbackQuery().getData());
     }
 

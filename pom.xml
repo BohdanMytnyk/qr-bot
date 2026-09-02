@@ -34,6 +34,12 @@
                         <configuration>
                             <rules>
                                 <rule>
+                                    <element>BUNDLE</element>
+                                    <limits>
+                                        <limit><counter>BRANCH</counter><value>COVEREDRATIO</value><minimum>0.80</minimum></limit>
+                                    </limits>
+                                </rule>
+                                <rule>
                                     <element>CLASS</element>
                                     <includes>
                                         <include>ua.mytnyk.qrbot.telegram.CustomerLockingUpdateInterceptor</include>

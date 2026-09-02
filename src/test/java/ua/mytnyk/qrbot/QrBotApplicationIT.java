@@ -51,6 +51,7 @@ class QrBotApplicationIT {
         registry.add("telegram.bot-username", () -> "test_bot");
         registry.add("telegram.content-channel-id", () -> "-100123");
         registry.add("telegram.restart-notification-chat-id", () -> "0");
+        registry.add("telegram.startup-notifier.enabled", () -> "false");
         registry.add("telegram.polling.enabled", () -> "false");
         registry.add("telegram.webhook.enabled", () -> "true");
         registry.add("telegram.webhook.path", () -> "/telegram/webhook");
@@ -64,7 +65,7 @@ class QrBotApplicationIT {
         users.deleteAll();
         mongo.dropCollection("analytics_events");
         while (TELEGRAM.takeRequest(25, TimeUnit.MILLISECONDS) != null) {
-            // Discard StartupNotifier and requests from the preceding test.
+            // Discard requests from the preceding test.
         }
     }
 
@@ -152,7 +153,6 @@ class QrBotApplicationIT {
         } catch (IOException exception) {
             throw new ExceptionInInitializerError(exception);
         }
-        server.enqueue(json(200, "{\"ok\":true,\"result\":true}"));
         return server;
     }
 }
