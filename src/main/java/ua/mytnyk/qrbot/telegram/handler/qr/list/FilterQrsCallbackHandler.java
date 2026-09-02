@@ -8,12 +8,12 @@ import ua.mytnyk.qrbot.domain.QrType;
 import ua.mytnyk.qrbot.domain.QrStatus;
 import ua.mytnyk.qrbot.service.QrWorkflow;
 import ua.mytnyk.qrbot.telegram.TelegramGateway;
-import ua.mytnyk.qrbot.telegram.handler.CallbackHandler;
+import ua.mytnyk.telegram.common.handler.UpdateHandler;
 import ua.mytnyk.telegram.common.model.common.webhook.UpdateWebhook;
 
 @Order(10)
 @Component
-public class FilterQrsCallbackHandler implements CallbackHandler {
+public class FilterQrsCallbackHandler implements UpdateHandler {
     private static final Set<String> SUPPORTED_DATA = Set.of(
             QrWorkflow.FILTER_TYPE_PREFIX + QrType.CONTENT,
             QrWorkflow.FILTER_TYPE_PREFIX + QrType.SINGLE_USE,

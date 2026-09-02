@@ -77,13 +77,13 @@ public class QrWorkflow {
     private final QrBotProperties properties;
     private final List<ContentDeliveryStrategy> deliveryStrategies;
     private final MongoTemplate mongo;
-    private final AnalyticsService analytics;
+    private final QrAnalytics analytics;
     private final Clock clock = Clock.systemUTC();
 
     public QrWorkflow(BotUserRepository users, QrCodeRepository qrCodes, QrAccessRepository accesses,
                       PasswordHasher passwords, QrImageGenerator imageGenerator, TelegramGateway telegram,
                       QrBotProperties properties, List<ContentDeliveryStrategy> deliveryStrategies,
-                      MongoTemplate mongo, AnalyticsService analytics) {
+                      MongoTemplate mongo, QrAnalytics analytics) {
         this.users = users;
         this.qrCodes = qrCodes;
         this.accesses = accesses;

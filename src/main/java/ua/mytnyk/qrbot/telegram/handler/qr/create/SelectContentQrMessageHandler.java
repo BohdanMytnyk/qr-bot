@@ -3,12 +3,12 @@ package ua.mytnyk.qrbot.telegram.handler.qr.create;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 import ua.mytnyk.qrbot.service.QrWorkflow;
-import ua.mytnyk.qrbot.telegram.handler.MessageHandler;
+import ua.mytnyk.telegram.common.handler.UpdateHandler;
 import ua.mytnyk.telegram.common.model.common.webhook.UpdateWebhook;
 
 @Order(1000)
 @Component
-public class SelectContentQrMessageHandler implements MessageHandler {
+public class SelectContentQrMessageHandler implements UpdateHandler {
     private final QrWorkflow workflow;
 
     public SelectContentQrMessageHandler(QrWorkflow workflow) {

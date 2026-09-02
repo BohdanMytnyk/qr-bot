@@ -5,13 +5,13 @@ import org.springframework.stereotype.Component;
 import ua.mytnyk.qrbot.domain.QrType;
 import ua.mytnyk.qrbot.service.QrWorkflow;
 import ua.mytnyk.qrbot.telegram.TelegramGateway;
-import ua.mytnyk.qrbot.telegram.handler.CallbackHandler;
+import ua.mytnyk.telegram.common.handler.UpdateHandler;
 import ua.mytnyk.telegram.common.model.common.webhook.UpdateWebhook;
 import java.util.Set;
 
 @Order(10)
 @Component
-public class SelectQrTypeCallbackHandler implements CallbackHandler {
+public class SelectQrTypeCallbackHandler implements UpdateHandler {
     private static final Set<String> SUPPORTED_DATA = Set.of(
             QrWorkflow.TYPE_PREFIX + QrType.CONTENT,
             QrWorkflow.TYPE_PREFIX + QrType.SINGLE_USE,

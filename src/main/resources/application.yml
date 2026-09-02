@@ -5,6 +5,9 @@ spring:
     mongodb:
       database: ${MONGODB_DATABASE:qr_bot}
       auto-index-creation: true
+analytics:
+  enabled: true
+  collection: analytics_events
 telegram:
   token: ${TELEGRAM_BOT_TOKEN}
   bot-username: ${TELEGRAM_BOT_USERNAME}

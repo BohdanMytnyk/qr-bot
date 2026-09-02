@@ -3,12 +3,12 @@ package ua.mytnyk.qrbot.telegram.handler.qr.open;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 import ua.mytnyk.qrbot.service.QrWorkflow;
-import ua.mytnyk.qrbot.telegram.handler.MessageHandler;
+import ua.mytnyk.telegram.common.handler.UpdateHandler;
 import ua.mytnyk.telegram.common.model.common.webhook.UpdateWebhook;
 
 @Order(1)
 @Component
-public class ProvideProtectedQrPasswordMessageHandler implements MessageHandler {
+public class ProvideProtectedQrPasswordMessageHandler implements UpdateHandler {
     private final QrWorkflow workflow;
 
     public ProvideProtectedQrPasswordMessageHandler(QrWorkflow workflow) {
