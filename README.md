@@ -53,6 +53,22 @@ mvn spring-boot:run
 
 PowerShell does not automatically import `.env`; export those values into the process environment before running Maven.
 
+## Tests
+
+Run the fast unit suite without Docker:
+
+```powershell
+mvn test
+```
+
+Run the complete suite, including the Spring Boot webhook E2E test with a disposable MongoDB container:
+
+```powershell
+mvn verify -Pdocker-e2e
+```
+
+The E2E suite requires a running Docker engine. Telegram is replaced by a local HTTP stub; no real bot token, webhook secret, or external request is used.
+
 ## Deploy with Maven, SSH, and Docker Compose
 
 The `docker-deploy` Maven profile runs the normal build and tests, packages the Spring Boot jar, and invokes `deploy/deploy.ps1` during Maven's `deploy` phase. The script copies the jar and deployment assets to `macserver` over SSH/SCP, then runs Docker Compose on the server.
@@ -89,7 +105,7 @@ ssh macserver "cd /home/serveradmin/apps/qr-bot-prod && docker compose down"
 
 `docker compose down` preserves the external-name-stable `qr-bot-prod-mongodb-data` volume. Do not add `--volumes` unless permanent database deletion is intended. MongoDB creates its application user only when the data volume is initialized, so changing MongoDB credentials in `.env` later also requires rotating the user inside MongoDB.
 
-The current stack continues to use Telegram long polling. The Cloudflare Tunnel container will be added with the webhook deployment so it has an actual internal HTTP endpoint to route to.
+The production stack uses Telegram webhooks through the Cloudflare Tunnel. Local development can use the polling configuration.
 
 ## Persistence and analytics
 
