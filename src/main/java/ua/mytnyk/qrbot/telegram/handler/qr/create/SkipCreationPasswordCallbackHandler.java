@@ -26,7 +26,7 @@ public class SkipCreationPasswordCallbackHandler implements CallbackHandler {
     public void handle(UpdateWebhook update) {
         var callback = update.getCallbackQuery();
         if (!workflow.isCurrentNavigation(callback.getFrom().getId(), callback.getMessage().getMessageId())) {
-            telegram.answerCallback(callback.getId(), "This control is outdated.");
+            telegram.answerCallback(callback.getId(), "Ця панель керування застаріла.");
             return;
         }
         workflow.skipCreationPassword(callback.getFrom(), callback.getMessage().getChat().getId());

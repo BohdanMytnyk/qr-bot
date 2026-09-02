@@ -104,7 +104,7 @@ public class TelegramGateway {
 
     public void publishCommands() {
         var commands = List.of(
-                Map.of("command", "start", "description", "🏠 Menu"));
+                Map.of("command", "start", "description", "🏠 Меню"));
         restClient.post().uri(botApiUrl + "/setMyCommands")
                 .body(Map.of("commands", commands)).retrieve().toBodilessEntity();
     }

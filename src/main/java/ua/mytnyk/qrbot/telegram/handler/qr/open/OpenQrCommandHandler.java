@@ -33,7 +33,7 @@ public class OpenQrCommandHandler implements CommandHandler {
         try {
             workflow.open(matcher.group(1), update.getMessage());
         } catch (RestClientResponseException exception) {
-            telegram.sendText(update.getMessage().getChat().getId(), "⚠️ The QR content could not be delivered. Please contact its creator.");
+            telegram.sendText(update.getMessage().getChat().getId(), "⚠️ Не вдалося доставити контент QR-коду. Зверніться до його створювача.");
             throw exception;
         }
     }

@@ -28,7 +28,7 @@ public class UpdateDispatcher {
             return;
         }
         var lock = userLocks[Math.floorMod(Long.hashCode(userId), userLocks.length)];
-        synchronized (lock) {
+         synchronized (lock) {
             dispatchSafely(update);
         }
     }

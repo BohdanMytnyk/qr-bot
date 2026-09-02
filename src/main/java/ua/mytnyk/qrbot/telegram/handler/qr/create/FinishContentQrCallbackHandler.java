@@ -26,7 +26,7 @@ public class FinishContentQrCallbackHandler implements CallbackHandler {
     public void handle(UpdateWebhook update) {
         var callback = update.getCallbackQuery();
         if (!workflow.isCurrentNavigation(callback.getFrom().getId(), callback.getMessage().getMessageId())) {
-            telegram.answerCallback(callback.getId(), "This upload control is outdated.");
+            telegram.answerCallback(callback.getId(), "Ця панель завантаження застаріла.");
             return;
         }
         workflow.finishContentSelection(callback.getFrom(), callback.getMessage().getChat().getId());

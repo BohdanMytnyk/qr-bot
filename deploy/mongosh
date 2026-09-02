@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+exec docker exec -it qr-bot-prod-mongodb sh -lc \
+    'exec mongosh --username "$MONGO_APP_USERNAME" --password "$MONGO_APP_PASSWORD" --authenticationDatabase qr_bot qr_bot'

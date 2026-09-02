@@ -53,14 +53,43 @@ mvn spring-boot:run
 
 PowerShell does not automatically import `.env`; export those values into the process environment before running Maven.
 
-## Run with Docker Compose
+## Deploy with Maven, SSH, and Docker Compose
 
-From this directory, after creating `.env`:
+The `docker-deploy` Maven profile runs the normal build and tests, packages the Spring Boot jar, and invokes `deploy/deploy.ps1` during Maven's `deploy` phase. The script copies the jar and deployment assets to `macserver` over SSH/SCP, then runs Docker Compose on the server.
+
+Before the first deployment, copy `deploy/.env.example` to `deploy/.env` and replace every placeholder. This ignored file is transferred over SSH and stored with mode `0600` on the server.
+
+From the `qr-bot` directory:
 
 ```powershell
-docker compose up --build -d
-docker compose logs -f bot
+mvn deploy -Pdocker-deploy
 ```
+
+The profile skips Maven repository publication and performs the remote deployment instead. By default it connects with `ssh macserver` and deploys into `/home/serveradmin/apps/qr-bot-prod`. No host ports are published. MongoDB is reachable only from the bot over an internal Docker network.
+
+All long-lived Docker objects use explicit names:
+
+- Application container/image: `qr-bot-prod-app`
+- MongoDB container: `qr-bot-prod-mongodb`
+- MongoDB data volume: `qr-bot-prod-mongodb-data`
+- Private database network: `qr-bot-prod-mongodb-network`
+- Application outbound network: `qr-bot-prod-outbound-network`
+
+Routine Maven deployments run MongoDB with `--no-recreate`, build a new application image, and replace only `qr-bot-prod-app`. The explicitly named MongoDB volume is reattached even if its container must be started again, so application redeployment preserves the same database and data. After a successful deployment, only dangling images labeled for the `qr-bot-prod` application service are pruned.
+
+The deployment also installs `~/bin/mongosh`, a zero-overhead wrapper that opens the shell inside `qr-bot-prod-mongodb` with the restricted application credentials. It does not publish MongoDB to the host or LAN.
+
+Useful operations:
+
+```powershell
+ssh macserver "cd /home/serveradmin/apps/qr-bot-prod && docker compose ps"
+ssh macserver "cd /home/serveradmin/apps/qr-bot-prod && docker compose logs -f app"
+ssh macserver "cd /home/serveradmin/apps/qr-bot-prod && docker compose down"
+```
+
+`docker compose down` preserves the external-name-stable `qr-bot-prod-mongodb-data` volume. Do not add `--volumes` unless permanent database deletion is intended. MongoDB creates its application user only when the data volume is initialized, so changing MongoDB credentials in `.env` later also requires rotating the user inside MongoDB.
+
+The current stack continues to use Telegram long polling. The Cloudflare Tunnel container will be added with the webhook deployment so it has an actual internal HTTP endpoint to route to.
 
 ## Persistence and analytics
 

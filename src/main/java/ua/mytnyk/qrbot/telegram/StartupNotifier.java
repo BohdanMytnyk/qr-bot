@@ -32,7 +32,7 @@ public class StartupNotifier {
             return;
         }
         try {
-            telegram.sendText(notificationChatId, "🔄 restarted");
+        telegram.sendText(notificationChatId, "🔄 перезапущено");
             log.info("Restart notification sent chatId={}", notificationChatId);
         } catch (RuntimeException exception) {
             log.error("Could not send restart notification chatId={}", notificationChatId, exception);

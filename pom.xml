@@ -9,8 +9,62 @@
     <properties><java.version>17</java.version></properties>
     <dependencies>
         <dependency><groupId>ua.mytnyk</groupId><artifactId>telegram-common</artifactId><version>0.0.1</version></dependency>
+        <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-web</artifactId></dependency>
         <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-data-mongodb</artifactId></dependency>
         <dependency><groupId>com.google.zxing</groupId><artifactId>core</artifactId><version>3.5.3</version></dependency>
     </dependencies>
-    <build><plugins><plugin><groupId>org.springframework.boot</groupId><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build>
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+
+    <profiles>
+        <profile>
+            <id>docker-deploy</id>
+            <properties>
+                <maven.deploy.skip>true</maven.deploy.skip>
+                <deploy.ssh.host>macserver</deploy.ssh.host>
+                <deploy.remote.directory>/home/serveradmin/apps/qr-bot-prod</deploy.remote.directory>
+            </properties>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.codehaus.mojo</groupId>
+                        <artifactId>exec-maven-plugin</artifactId>
+                        <version>3.5.0</version>
+                        <executions>
+                            <execution>
+                                <id>remote-docker-deploy</id>
+                                <phase>deploy</phase>
+                                <goals>
+                                    <goal>exec</goal>
+                                </goals>
+                                <configuration>
+                                    <executable>powershell</executable>
+                                    <workingDirectory>${project.basedir}</workingDirectory>
+                                    <arguments>
+                                        <argument>-NoProfile</argument>
+                                        <argument>-ExecutionPolicy</argument>
+                                        <argument>Bypass</argument>
+                                        <argument>-File</argument>
+                                        <argument>${project.basedir}/deploy/deploy.ps1</argument>
+                                        <argument>-Artifact</argument>
+                                        <argument>${project.build.directory}/${project.build.finalName}.jar</argument>
+                                        <argument>-SshHost</argument>
+                                        <argument>${deploy.ssh.host}</argument>
+                                        <argument>-RemoteDirectory</argument>
+                                        <argument>${deploy.remote.directory}</argument>
+                                    </arguments>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
 </project>

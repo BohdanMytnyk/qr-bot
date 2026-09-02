@@ -1,0 +1,7 @@
+telegram:
+  polling:
+    enabled: true
+    fixed-delay: 1000
+  webhook:
+    enabled: false
+    secret: ""

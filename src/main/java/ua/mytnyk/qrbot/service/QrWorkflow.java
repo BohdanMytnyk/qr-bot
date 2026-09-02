@@ -3,6 +3,7 @@ package ua.mytnyk.qrbot.service;
 import java.time.Clock;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.util.Locale;
 import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.List;
@@ -65,7 +66,8 @@ public class QrWorkflow {
     private static final int MAX_TEXT_LENGTH = 4096;
     private static final int MAX_MEDIA_CAPTION_LENGTH = 1024;
     private static final DateTimeFormatter DISPLAY_DATE = DateTimeFormatter
-            .ofPattern("dd MMM yyyy, HH:mm").withZone(ZoneId.of("Europe/Kyiv"));
+            .ofPattern("dd MMM yyyy, HH:mm", Locale.forLanguageTag("uk-UA"))
+            .withZone(ZoneId.of("Europe/Kyiv"));
     private final BotUserRepository users;
     private final QrCodeRepository qrCodes;
     private final QrAccessRepository accesses;
@@ -133,11 +135,11 @@ public class QrWorkflow {
         saveUser(actor, BotUser.State.IDLE, null, null, null);
         analytics.track(AnalyticsAction.CREATION_STARTED, actor.getId(), chatId);
         log.info("QR creation started userId={}", actor.getId());
-        return new BotView("🧩 Select the QR type.", keyboard(List.of(
-                row(button("📄 Content", TYPE_PREFIX + QrType.CONTENT)),
-                row(button("1️⃣ Single-use QR", TYPE_PREFIX + QrType.SINGLE_USE)),
-                row(button("🎟️ Coupon", TYPE_PREFIX + QrType.COUPON)),
-                row(button("🏠 Main menu", MENU_HOME)))));
+        return new BotView("🧩 Оберіть тип QR-коду.", keyboard(List.of(
+                row(button("📄 Контент", TYPE_PREFIX + QrType.CONTENT)),
+                row(button("1️⃣ Одноразовий QR-код", TYPE_PREFIX + QrType.SINGLE_USE)),
+                row(button("🎟️ Купон", TYPE_PREFIX + QrType.COUPON)),
+                row(button("🏠 Головне меню", MENU_HOME)))));
     }
 
     public BotView selectType(User actor, long chatId, QrType type) {
@@ -146,9 +148,9 @@ public class QrWorkflow {
         analytics.track(AnalyticsAction.QR_TYPE_SELECTED, actor.getId(), chatId, null,
                 Map.of("qrType", type.name()));
         log.info("QR type selected userId={} type={}", actor.getId(), type);
-        return new BotView("⏳ Waiting for content…\n\n⚠️ Send all content as ONE message with no more than"
-                + " 10 attached files. Additional messages or separate uploads may not be processed.",
-                keyboard(List.of(row(button("❌ Cancel", MENU_HOME)))));
+        return new BotView("⏳ Очікую на контент…\n\n⚠️ Надішліть увесь контент ОДНИМ повідомленням,"
+                + " додавши не більше 10 файлів. Додаткові повідомлення або окремі завантаження можуть не обробитися.",
+                keyboard(List.of(row(button("❌ Скасувати", MENU_HOME)))));
     }
 
     public boolean isWaitingForContent(long userId) {
@@ -186,7 +188,7 @@ public class QrWorkflow {
         contentItems.sort(java.util.Comparator.comparingInt(QrContentItem::order));
         var limitViolation = contentLimitViolation(contentItems);
         if (limitViolation != null) {
-            telegram.sendText(chatId, "⚠️ " + limitViolation + " The existing draft was not changed.");
+            telegram.sendText(chatId, "⚠️ " + limitViolation + " Наявну чернетку не змінено.");
             refreshUploadControl(message.getFrom(), chatId, contentItems.size() - 1,
                     previewText(user.pendingContentItems()), false);
             log.info("Draft content limit reached userId={} messageId={} mediaGroupId={} reason={}",
@@ -232,9 +234,9 @@ public class QrWorkflow {
         var navigationMessageId = user.navigationMessageId();
         var hasAttachments = user.pendingContentItems() != null && user.pendingContentItems().stream()
                 .anyMatch(item -> item.kind() != QrContentItem.Kind.TEXT);
-        var text = "🔐 Send a password/code for this QR. Your message will be deleted immediately.";
-        var keyboard = keyboard(List.of(row(button("⏭️ Skip password", PROTECTION_PREFIX + "skip")),
-                row(button("❌ Cancel", MENU_HOME))));
+        var text = "🔐 Надішліть пароль/код для цього QR-коду. Ваше повідомлення буде одразу видалено.";
+        var keyboard = keyboard(List.of(row(button("⏭️ Пропустити пароль", PROTECTION_PREFIX + "skip")),
+                row(button("❌ Скасувати", MENU_HOME))));
         if (!hasAttachments || navigationMessageId == null) {
             navigationMessageId = telegram.sendInline(chatId, text, keyboard);
         } else {
@@ -261,7 +263,7 @@ public class QrWorkflow {
         saveUser(message.getFrom(), BotUser.State.WAITING_FOR_CREATION_CASE_CHOICE, user.selectedType(),
                 user.channelMessageId(), null, user.pendingMessageIds(), null);
         var navigationMessageId = user.navigationMessageId();
-        var text = "🔤 Should answers ignore letter case?\n\nExample: Gift, GIFT, and gift would all match.";
+        var text = "🔤 Ігнорувати регістр літер у відповідях?\n\nПриклад: Подарунок, ПОДАРУНОК і подарунок вважатимуться однаковими.";
         var keyboard = caseChoiceKeyboard(CREATION_CASE_PREFIX);
         if (navigationMessageId == null) {
             navigationMessageId = telegram.sendInline(message.getChat().getId(), text, keyboard);
@@ -289,9 +291,9 @@ public class QrWorkflow {
             preferences = new QrListPreferences(preferences.types(), preferences.statuses(), preferences.sort(), page);
         }
         var all = filteredQrs(actor.getId(), preferences);
-        var text = new StringBuilder("📚 Your QRs\n\n🔎 Found: ").append(totalCount)
-                .append("\n\n📄 Content · 1️⃣ Single-use · 🎟️ Coupon")
-                .append("\n✅ Active · 🏁 Redeemed · 🔒 Protected · 📎 Attachments");
+        var text = new StringBuilder("📚 Ваші QR-коди\n\n🔎 Знайдено: ").append(totalCount)
+                .append("\n\n📄 Контент · 1️⃣ Одноразовий · 🎟️ Купон")
+                .append("\n✅ Активний · 🏁 Погашений · 🔒 Захищений · 📎 Вкладення");
         var rows = new ArrayList<List<InlineKeyboardButton>>();
         rows.add(row(
                 groupedTypeCheckboxButton(QrType.CONTENT, preferences.types()),
@@ -300,7 +302,7 @@ public class QrWorkflow {
         rows.add(row(statusCheckboxButton(QrStatus.ACTIVE, preferences.statuses()),
                 statusCheckboxButton(QrStatus.REDEEMED, preferences.statuses())));
         rows.add(row(button(preferences.sort() == QrListSort.NEWEST
-                        ? "📅 Newest first ↓" : "📅 Oldest first ↑",
+                        ? "📅 Спочатку новіші ↓" : "📅 Спочатку старіші ↑",
                 SORT_PREFIX + (preferences.sort() == QrListSort.NEWEST
                         ? QrListSort.OLDEST : QrListSort.NEWEST))));
         var index = page * QR_LIST_PAGE_SIZE + 1;
@@ -311,13 +313,13 @@ public class QrWorkflow {
             index++;
         }
         if (all.isEmpty()) {
-            text.append("\n\n📭 No QRs match these filters.");
+            text.append("\n\n📭 Жоден QR-код не відповідає цим фільтрам.");
         }
         rows.add(row(button(page > 0 ? "⬅️" : "·", page > 0 ? PAGE_PREFIX + (page - 1) : NOOP),
                 button((page + 1) + "/" + totalPages, NOOP),
                 button(page + 1 < totalPages ? "➡️" : "·",
                         page + 1 < totalPages ? PAGE_PREFIX + (page + 1) : NOOP)));
-        rows.add(row(button("🏠 Main menu", MENU_HOME)));
+        rows.add(row(button("🏠 Головне меню", MENU_HOME)));
         analytics.track(AnalyticsAction.QR_LIST_VIEWED, actor.getId(), chatId, null,
                 Map.of("filteredCount", Long.toString(totalCount)));
         return new BotView(text.toString(), keyboard(rows));
@@ -367,32 +369,32 @@ public class QrWorkflow {
         deleteNavigation(actor.getId(), chatId);
         if (qrCode == null || effectiveStatus(qrCode) == QrStatus.DELETED) {
             saveUser(actor, BotUser.State.IDLE, null, null, null);
-            sendMainNavigation(actor, chatId, "🔍 QR not found.\n\n");
+            sendMainNavigation(actor, chatId, "🔍 QR-код не знайдено.\n\n");
             return;
         }
         var rows = new ArrayList<List<InlineKeyboardButton>>();
-        rows.add(row(button("📷 Show QR and link", SHOW_QR_PREFIX + qrCode.id())));
+        rows.add(row(button("📷 Показати QR-код і посилання", SHOW_QR_PREFIX + qrCode.id())));
         if (effectiveStatus(qrCode) == QrStatus.ACTIVE) {
             if (isPasswordProtected(qrCode)) {
-                rows.add(row(button("🔑 Change password", CHANGE_PASSWORD_PREFIX + qrCode.id())));
+                rows.add(row(button("🔑 Змінити пароль", CHANGE_PASSWORD_PREFIX + qrCode.id())));
             }
-            rows.add(row(button("🗑️ Delete QR", DELETE_PREFIX + qrCode.id())));
+            rows.add(row(button("🗑️ Видалити QR-код", DELETE_PREFIX + qrCode.id())));
         }
-        rows.add(row(button("⬅️ Back to My QRs", MENU_LIST), button("🏠 Main menu", MENU_HOME)));
+        rows.add(row(button("⬅️ Назад до моїх QR-кодів", MENU_LIST), button("🏠 Головне меню", MENU_HOME)));
         var displayedMessageIds = previewContent(qrCode, chatId);
-        var details = "🔎 QR item\n\n"
+        var details = "🔎 QR-код\n\n"
                 + "🆔 " + qrCode.id()
-                + "\n" + typeEmoji(qrCode.type()) + " Type: " + typeLabel(qrCode.type())
-                + "\n✅ Status: " + effectiveStatus(qrCode)
-                + "\n👁 Successful opens: " + qrCode.openCount()
-                + "\n📅 Created: " + DISPLAY_DATE.format(qrCode.createdAt());
+                + "\n" + typeEmoji(qrCode.type()) + " Тип: " + typeLabel(qrCode.type())
+                + "\n✅ Статус: " + statusLabel(effectiveStatus(qrCode))
+                + "\n👁 Успішних відкриттів: " + qrCode.openCount()
+                + "\n📅 Створено: " + DISPLAY_DATE.format(qrCode.createdAt());
         if (qrCode.previewText() != null && !qrCode.previewText().isBlank()) {
-            details += "\n📝 Preview: " + qrCode.previewText();
+            details += "\n📝 Перегляд: " + qrCode.previewText();
         }
         if (effectiveStatus(qrCode) == QrStatus.REDEEMED) {
-            details += "\n\n👤 Redeemed by: " + redeemedBy(qrCode)
-                    + "\n🕐 Redeemed: " + (qrCode.redeemedAt() == null
-                    ? "Unknown" : DISPLAY_DATE.format(qrCode.redeemedAt()));
+            details += "\n\n👤 Погашено користувачем: " + redeemedBy(qrCode)
+                    + "\n🕐 Погашено: " + (qrCode.redeemedAt() == null
+                    ? "Невідомо" : DISPLAY_DATE.format(qrCode.redeemedAt()));
         }
         var navigationMessageId = telegram.sendInline(chatId, details, keyboard(rows));
         displayedMessageIds.add(navigationMessageId);
@@ -407,13 +409,13 @@ public class QrWorkflow {
         deleteNavigation(actor.getId(), chatId);
         if (qrCode == null || effectiveStatus(qrCode) == QrStatus.DELETED) {
             saveUser(actor, BotUser.State.IDLE, null, null, null);
-            sendMainNavigation(actor, chatId, "🔍 QR not found.\n\n");
+            sendMainNavigation(actor, chatId, "🔍 QR-код не знайдено.\n\n");
             return;
         }
         var link = deepLink(qrCode.id());
         var qrMessageId = telegram.sendPhoto(chatId, "qr-" + qrCode.id() + ".png", imageGenerator.generatePng(link),
-                "🔗 " + link, keyboard(List.of(row(button("⬅️ Back to item", VIEW_PREFIX + qrCode.id())),
-                        row(button("📚 My QRs", MENU_LIST), button("🏠 Main menu", MENU_HOME)))));
+                "🔗 " + link, keyboard(List.of(row(button("⬅️ Назад до QR-коду", VIEW_PREFIX + qrCode.id())),
+                        row(button("📚 Мої QR-коди", MENU_LIST), button("🏠 Головне меню", MENU_HOME)))));
         setNavigationMessage(actor, qrMessageId);
         setDisplayedMessages(actor, List.of(qrMessageId));
     }
@@ -437,11 +439,11 @@ public class QrWorkflow {
         if (qrCode == null || effectiveStatus(qrCode) != QrStatus.ACTIVE
                 || !isPasswordProtected(qrCode)) {
             saveUser(actor, BotUser.State.IDLE, null, null, null);
-            return new BotView("🔍 QR not found.\n\n" + mainMenuView().text(), mainMenuView().keyboard());
+            return new BotView("🔍 QR-код не знайдено.\n\n" + mainMenuView().text(), mainMenuView().keyboard());
         }
         saveUser(actor, BotUser.State.WAITING_FOR_PASSWORD_CHANGE, null, null, qrId);
-        return new BotView("🔑 Send the new password/code. Your message will be deleted immediately.",
-                keyboard(List.of(row(button("❌ Cancel", MENU_HOME)))));
+        return new BotView("🔑 Надішліть новий пароль/код. Ваше повідомлення буде одразу видалено.",
+                keyboard(List.of(row(button("❌ Скасувати", MENU_HOME)))));
     }
 
     public boolean isWaitingForPasswordChange(long userId) {
@@ -456,7 +458,7 @@ public class QrWorkflow {
                 || !isPasswordProtected(qrCode)) {
             deleteNavigation(message.getFrom().getId(), message.getChat().getId());
             saveUser(message.getFrom(), BotUser.State.IDLE, null, null, null);
-            sendMainNavigation(message.getFrom(), message.getChat().getId(), "🔍 QR not found.\n\n");
+            sendMainNavigation(message.getFrom(), message.getChat().getId(), "🔍 QR-код не знайдено.\n\n");
             return;
         }
         var password = requirePassword(message);
@@ -464,7 +466,7 @@ public class QrWorkflow {
         saveUser(message.getFrom(), BotUser.State.WAITING_FOR_CHANGE_CASE_CHOICE, null, null, qrCode.id());
         deleteNavigation(message.getFrom().getId(), message.getChat().getId());
         var navigationMessageId = telegram.sendInline(message.getChat().getId(),
-                "🔤 Should answers ignore letter case?\n\nExample: Gift, GIFT, and gift would all match.",
+                "🔤 Ігнорувати регістр літер у відповідях?\n\nПриклад: Подарунок, ПОДАРУНОК і подарунок вважатимуться однаковими.",
                 caseChoiceKeyboard(CHANGE_CASE_PREFIX));
         setNavigationMessage(message.getFrom(), navigationMessageId);
     }
@@ -475,7 +477,7 @@ public class QrWorkflow {
         if (qrCode == null || effectiveStatus(qrCode) != QrStatus.ACTIVE) {
             deleteNavigation(actor.getId(), chatId);
             saveUser(actor, BotUser.State.IDLE, null, null, null);
-            sendMainNavigation(actor, chatId, "🔍 QR not found.\n\n");
+            sendMainNavigation(actor, chatId, "🔍 QR-код не знайдено.\n\n");
             return;
         }
         var password = selectedPassword(user.pendingPasswordOptions(), ignoreCase);
@@ -483,7 +485,7 @@ public class QrWorkflow {
                 new Update().set("passwordSalt", password.salt()).set("passwordHash", password.hash())
                         .set("ignorePasswordCase", ignoreCase), QrCode.class);
         saveUser(actor, BotUser.State.IDLE, null, null, null);
-        telegram.sendText(chatId, "✅ Password updated");
+        telegram.sendText(chatId, "✅ Пароль оновлено");
         showQrDetails(qrCode.id(), actor, chatId);
         log.info("QR password updated qrId={} ownerId={} ignoreCase={}", qrCode.id(), actor.getId(), ignoreCase);
     }
@@ -494,12 +496,12 @@ public class QrWorkflow {
         analytics.track(AnalyticsAction.QR_SCANNED, message.getFrom().getId(), message.getChat().getId(), qrCode);
         if (qrCode != null && effectiveStatus(qrCode) == QrStatus.REDEEMED) {
             sendMainNavigation(message.getFrom(), message.getChat().getId(),
-                    "ℹ️ This QR has already been redeemed.\n\n");
+                    "ℹ️ Цей QR-код уже погашено.\n\n");
             return OpenResult.NOT_FOUND;
         }
         if (qrCode == null || effectiveStatus(qrCode) != QrStatus.ACTIVE) {
             trackNotFound(message, qrCode);
-            sendMainNavigation(message.getFrom(), message.getChat().getId(), "🔍 QR not found.\n\n");
+            sendMainNavigation(message.getFrom(), message.getChat().getId(), "🔍 QR-код не знайдено.\n\n");
             return OpenResult.NOT_FOUND;
         }
         if (qrCode.type() == QrType.SINGLE_USE && !isPasswordProtected(qrCode)) {
@@ -507,7 +509,7 @@ public class QrWorkflow {
             saveUser(message.getFrom(), BotUser.State.IDLE, null, null, null);
             if (!redeemed) {
                 sendMainNavigation(message.getFrom(), message.getChat().getId(),
-                        "ℹ️ This QR has already been redeemed.\n\n");
+                        "ℹ️ Цей QR-код уже погашено.\n\n");
                 return OpenResult.NOT_FOUND;
             }
             sendMainNavigation(message.getFrom(), message.getChat().getId(), "");
@@ -516,15 +518,15 @@ public class QrWorkflow {
         if (qrCode.type() == QrType.COUPON) {
             if (qrCode.ownerId() != message.getFrom().getId()) {
                 trackNotFound(message, qrCode);
-                sendMainNavigation(message.getFrom(), message.getChat().getId(), "🔍 QR not found.\n\n");
+                sendMainNavigation(message.getFrom(), message.getChat().getId(), "🔍 QR-код не знайдено.\n\n");
                 return OpenResult.NOT_FOUND;
             }
             saveUser(message.getFrom(), BotUser.State.WAITING_FOR_REDEEM_CONFIRMATION, null, null, qrCode.id());
             var displayedMessageIds = previewContent(qrCode, message.getChat().getId());
             var navigationMessageId = telegram.sendInline(message.getChat().getId(),
-                    "🎟️ Redeem this coupon now?",
-                    keyboard(List.of(row(button("✅ Redeem", REDEEM_PREFIX + qrCode.id())),
-                            row(button("❌ Cancel", MENU_HOME)))));
+                    "🎟️ Погасити цей купон зараз?",
+                    keyboard(List.of(row(button("✅ Погасити", REDEEM_PREFIX + qrCode.id())),
+                            row(button("❌ Скасувати", MENU_HOME)))));
             setNavigationMessage(message.getFrom(), navigationMessageId);
             displayedMessageIds.add(navigationMessageId);
             setDisplayedMessages(message.getFrom(), displayedMessageIds);
@@ -533,8 +535,8 @@ public class QrWorkflow {
         if (isPasswordProtected(qrCode)) {
             saveUser(message.getFrom(), BotUser.State.WAITING_FOR_OPEN_PASSWORD, null, null, qrCode.id());
             var navigationMessageId = telegram.sendInline(message.getChat().getId(),
-                    "🔐 Enter the password/code. Your message will be deleted immediately.",
-                    keyboard(List.of(row(button("❌ Cancel", MENU_HOME)))));
+                    "🔐 Введіть пароль/код. Ваше повідомлення буде одразу видалено.",
+                    keyboard(List.of(row(button("❌ Скасувати", MENU_HOME)))));
             setNavigationMessage(message.getFrom(), navigationMessageId);
             analytics.track(AnalyticsAction.PASSWORD_REQUESTED, message.getFrom().getId(),
                     message.getChat().getId(), qrCode);
@@ -557,7 +559,7 @@ public class QrWorkflow {
             deleteNavigation(message.getFrom().getId(), message.getChat().getId());
             saveUser(message.getFrom(), BotUser.State.IDLE, null, null, null);
             var prefix = effectiveStatus(qrCode) == QrStatus.REDEEMED
-                    ? "ℹ️ This QR has already been redeemed.\n\n" : "🔍 QR not found.\n\n";
+                    ? "ℹ️ Цей QR-код уже погашено.\n\n" : "🔍 QR-код не знайдено.\n\n";
             sendMainNavigation(message.getFrom(), message.getChat().getId(), prefix);
             return false;
         }
@@ -565,8 +567,8 @@ public class QrWorkflow {
         if (!passwords.matches(password, qrCode.passwordSalt(), qrCode.passwordHash())) {
             deleteNavigation(message.getFrom().getId(), message.getChat().getId());
             var navigationMessageId = telegram.sendInline(message.getChat().getId(),
-                    "❌ Incorrect password/code. Try again.",
-                    keyboard(List.of(row(button("❌ Cancel", MENU_HOME)))));
+                    "❌ Неправильний пароль/код. Спробуйте ще раз.",
+                    keyboard(List.of(row(button("❌ Скасувати", MENU_HOME)))));
             setNavigationMessage(message.getFrom(), navigationMessageId);
             analytics.track(AnalyticsAction.PASSWORD_REJECTED, message.getFrom().getId(),
                     message.getChat().getId(), qrCode);
@@ -576,7 +578,7 @@ public class QrWorkflow {
             var redeemed = redeemOneTimeGift(qrCode, message.getFrom(), message.getChat().getId());
             saveUser(message.getFrom(), BotUser.State.IDLE, null, null, null);
             if (!redeemed) {
-                sendMainNavigation(message.getFrom(), message.getChat().getId(), "🔍 QR not found.\n\n");
+                sendMainNavigation(message.getFrom(), message.getChat().getId(), "🔍 QR-код не знайдено.\n\n");
                 return false;
             }
             sendMainNavigation(message.getFrom(), message.getChat().getId(), "");
@@ -591,14 +593,14 @@ public class QrWorkflow {
         if (!qrId.equals(user.pendingQrId())) {
             deleteNavigation(actor.getId(), chatId);
             saveUser(actor, BotUser.State.IDLE, null, null, null);
-            sendMainNavigation(actor, chatId, "🔍 QR not found.\n\n");
+            sendMainNavigation(actor, chatId, "🔍 QR-код не знайдено.\n\n");
             return false;
         }
         var qrCode = qrCodes.findById(qrId).orElse(null);
         if (qrCode == null || qrCode.ownerId() != actor.getId() || effectiveStatus(qrCode) != QrStatus.ACTIVE) {
             deleteNavigation(actor.getId(), chatId);
             saveUser(actor, BotUser.State.IDLE, null, null, null);
-            sendMainNavigation(actor, chatId, "🔍 QR not found.\n\n");
+            sendMainNavigation(actor, chatId, "🔍 QR-код не знайдено.\n\n");
             return false;
         }
         if (user.navigationMessageId() != null) {
@@ -608,7 +610,7 @@ public class QrWorkflow {
         if (redeemed) {
             saveUser(actor, BotUser.State.IDLE, null, null, null);
             setDisplayedMessages(actor, List.of());
-            telegram.sendText(chatId, "✅ Successfully redeemed");
+            telegram.sendText(chatId, "✅ Успішно погашено");
             sendMainNavigation(actor, chatId, "");
         }
         return redeemed;
@@ -635,7 +637,7 @@ public class QrWorkflow {
         analytics.track(AnalyticsAction.QR_CREATED, actor.getId(), chatId, qrCode);
         var view = mainMenuView();
         var navigationMessageId = telegram.sendInline(chatId,
-                "✨ Ready for another QR.\n\n" + view.text(), view.keyboard());
+                "✨ Можна створити ще один QR-код.\n\n" + view.text(), view.keyboard());
         setNavigationMessage(actor, navigationMessageId);
     }
 
@@ -704,17 +706,17 @@ public class QrWorkflow {
     }
 
     private BotView mainMenuView() {
-        return new BotView("👋 Choose an action.", keyboard(List.of(
-                row(button("➕ Create QR", MENU_CREATE)),
-                row(button("📚 My QRs", MENU_LIST)))));
+        return new BotView("👋 Оберіть дію.", keyboard(List.of(
+                row(button("➕ Створити QR-код", MENU_CREATE)),
+                row(button("📚 Мої QR-коди", MENU_LIST)))));
     }
 
     private BotView contentReadyView(int count, String previewText) {
         var preview = previewText == null || previewText.isBlank() ? "" : "\n📝 " + previewText;
-        return new BotView("⏳ Uploads processing…" + preview
-                + "\n\n📦 Attachments received: " + count,
-                keyboard(List.of(row(button("✅ Create with " + count + " attachments", CONTENT_DONE)),
-                        row(button("❌ Cancel", MENU_HOME)))));
+        return new BotView("⏳ Обробка завантажень…" + preview
+                + "\n\n📦 Отримано вкладень: " + count,
+                keyboard(List.of(row(button("✅ Створити з " + count + " вкладеннями", CONTENT_DONE)),
+                        row(button("❌ Скасувати", MENU_HOME)))));
     }
 
     private void refreshUploadControl(User actor, long chatId, int count, String previewText,
@@ -802,7 +804,7 @@ public class QrWorkflow {
 
     private InlineKeyboardButton statusCheckboxButton(QrStatus status, Set<QrStatus> selectedStatuses) {
         var check = selectedStatuses.contains(status) ? "☑️" : "⬜";
-        return button(check + " " + statusEmoji(status) + " " + status, FILTER_STATUS_PREFIX + status);
+        return button(check + " " + statusEmoji(status) + " " + statusLabel(status), FILTER_STATUS_PREFIX + status);
     }
 
     private String statusEmoji(QrStatus status) {
@@ -832,7 +834,7 @@ public class QrWorkflow {
         if (fileCount > 0) {
             content.append("📎 ").append(fileCount);
         }
-        return content.isEmpty() ? "Open" : truncate(content.toString(), 64);
+        return content.isEmpty() ? "Відкрити" : truncate(content.toString(), 64);
     }
 
     private String shortPreview(String value) {
@@ -856,9 +858,9 @@ public class QrWorkflow {
     }
 
     private String redeemedBy(QrCode qrCode) {
-        var username = qrCode.redeemedByUsername() == null ? "no username" : "@" + qrCode.redeemedByUsername();
+        var username = qrCode.redeemedByUsername() == null ? "без імені користувача" : "@" + qrCode.redeemedByUsername();
         var name = qrCode.redeemedByName() == null || qrCode.redeemedByName().isBlank()
-                ? "Unknown name" : qrCode.redeemedByName();
+                ? "Ім’я невідоме" : qrCode.redeemedByName();
         return name + " · " + username + " · ID " + qrCode.redeemedByUserId();
     }
 
@@ -878,9 +880,17 @@ public class QrWorkflow {
 
     private String typeLabel(QrType type) {
         return switch (type) {
-            case CONTENT -> "Content";
-            case SINGLE_USE -> "Single-use QR";
-            case COUPON -> "Coupon";
+            case CONTENT -> "Контент";
+            case SINGLE_USE -> "Одноразовий QR-код";
+            case COUPON -> "Купон";
+        };
+    }
+
+    private String statusLabel(QrStatus status) {
+        return switch (status) {
+            case ACTIVE -> "Активний";
+            case REDEEMED -> "Погашений";
+            case DELETED -> "Видалений";
         };
     }
 
@@ -930,8 +940,10 @@ public class QrWorkflow {
     }
 
     private void resetUser(User actor) {
+        var listPreferences = users.findById(actor.getId()).map(this::preferences)
+                .orElseGet(QrListPreferences::defaults);
         users.save(new BotUser(actor.getId(), actor.getUsername(), BotUser.State.IDLE,
-                null, null, null, QrListPreferences.defaults(), null, clock.instant(), null, null, null, null, null));
+                null, null, null, listPreferences, null, clock.instant(), null, null, null, null, null));
     }
 
     private void setNavigationMessage(User actor, int messageId) {
@@ -989,10 +1001,10 @@ public class QrWorkflow {
     private String requirePassword(Message message) {
         var password = message.getText() == null ? null : message.getText().strip();
         if (password == null || password.isBlank()) {
-            throw new IllegalArgumentException("Password/code must be text");
+            throw new IllegalArgumentException("Пароль/код має бути текстом");
         }
         if (password.startsWith("/")) {
-            throw new IllegalArgumentException("Password/code cannot start with a slash");
+            throw new IllegalArgumentException("Пароль/код не може починатися з косої риски");
         }
         return password;
     }
@@ -1018,9 +1030,9 @@ public class QrWorkflow {
     }
 
     private InlineKeyboard caseChoiceKeyboard(String prefix) {
-        return keyboard(List.of(row(button("✅ Yes, ignore case", prefix + "ignore")),
-                row(button("🔠 No, match case", prefix + "exact")),
-                row(button("❌ Cancel", MENU_HOME))));
+        return keyboard(List.of(row(button("✅ Так, ігнорувати регістр", prefix + "ignore")),
+                row(button("🔠 Ні, враховувати регістр", prefix + "exact")),
+                row(button("❌ Скасувати", MENU_HOME))));
     }
 
     private QrContentItem contentItem(Message message, int order) {
@@ -1045,28 +1057,28 @@ public class QrWorkflow {
 
     private String contentLimitViolation(List<QrContentItem> items) {
         if (items.size() > MAX_CONTENT_ITEMS) {
-            return "A QR can contain at most " + MAX_CONTENT_ITEMS + " messages/items.";
+            return "QR-код може містити не більше " + MAX_CONTENT_ITEMS + " повідомлень/елементів.";
         }
         var photoAndVideoCount = items.stream().filter(item -> item.kind() == QrContentItem.Kind.PHOTO
                 || item.kind() == QrContentItem.Kind.VIDEO).count();
         if (photoAndVideoCount > MAX_MEDIA_ITEMS) {
-            return "A QR can contain at most 10 photos/videos.";
+            return "QR-код може містити не більше 10 фото/відео.";
         }
         var documentCount = items.stream().filter(item -> item.kind() == QrContentItem.Kind.DOCUMENT).count();
         if (documentCount > MAX_MEDIA_ITEMS) {
-            return "A QR can contain at most 10 documents.";
+            return "QR-код може містити не більше 10 документів.";
         }
         var oversizedText = items.stream().filter(item -> item.kind() == QrContentItem.Kind.TEXT)
                 .map(QrContentItem::text).filter(java.util.Objects::nonNull)
                 .anyMatch(text -> text.length() > MAX_TEXT_LENGTH);
         if (oversizedText) {
-            return "Each text message can contain at most 4,096 characters.";
+            return "Кожне текстове повідомлення може містити не більше 4 096 символів.";
         }
         var oversizedCaption = items.stream().filter(item -> item.kind() != QrContentItem.Kind.TEXT)
                 .map(QrContentItem::caption).filter(java.util.Objects::nonNull)
                 .anyMatch(caption -> caption.length() > MAX_MEDIA_CAPTION_LENGTH);
         if (oversizedCaption) {
-            return "Each media caption can contain at most 1,024 characters.";
+            return "Кожен підпис до медіафайлу може містити не більше 1 024 символи.";
         }
         return null;
     }

@@ -1,0 +1,6 @@
+.env
+.env.example
+.git
+compose.yml
+deploy.ps1
+mongo-init.js

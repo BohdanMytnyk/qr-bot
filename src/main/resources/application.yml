@@ -3,7 +3,7 @@ spring:
     name: qr-bot
   data:
     mongodb:
-      uri: ${MONGODB_URI:mongodb://localhost:27017/qr_bot}
+      database: ${MONGODB_DATABASE:qr_bot}
       auto-index-creation: true
 telegram:
   token: ${TELEGRAM_BOT_TOKEN}
@@ -11,8 +11,11 @@ telegram:
   content-channel-id: ${TELEGRAM_CONTENT_CHANNEL_ID}
   restart-notification-chat-id: ${TELEGRAM_RESTART_NOTIFICATION_CHAT_ID:0}
   polling:
+    enabled: false
+  webhook:
     enabled: true
-    fixed-delay: 1000
+    path: /telegram/webhook
+    secret: ${TELEGRAM_WEBHOOK_SECRET}
 logging:
   level:
     ua.mytnyk.qrbot: ${QR_BOT_LOG_LEVEL:INFO}
