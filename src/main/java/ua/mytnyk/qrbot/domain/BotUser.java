@@ -26,6 +26,7 @@ public record BotUser(@Id Long id, String username, State state, QrType selected
         WAITING_FOR_CHANGE_CASE_CHOICE,
         WAITING_FOR_REDEEM_CONFIRMATION,
         WAITING_FOR_FEEDBACK,
-        WAITING_FOR_DONATION_AMOUNT
+        WAITING_FOR_DONATION_AMOUNT,
+        WAITING_FOR_CLASSIC_URL
     }
 }

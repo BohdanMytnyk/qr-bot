@@ -1,6 +1,7 @@
 package ua.mytnyk.qrbot.service;
 
 import java.time.Clock;
+import java.net.URI;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.Locale;
@@ -160,7 +161,12 @@ public class QrWorkflow {
         saveUser(actor, BotUser.State.IDLE, null, null, null);
         analytics.track(AnalyticsAction.CREATION_STARTED, actor.getId(), chatId);
         log.info("QR creation started userId={}", actor.getId());
-        return new BotView("🧩 Оберіть тип QR-коду.", keyboard(List.of(
+        return new BotView("🧩 Оберіть тип QR-коду.\n\n"
+                + "🔗 Класичний — ваше посилання, коротка адреса і статистика переходів. Для сайтів, соцмереж та кампаній.\n"
+                + "📄 Контент — меню, інструкції, квести, матеріали й файли прямо в Telegram.\n"
+                + "1️⃣ Одноразовий — відкривається один раз. Для розіграшів, подарунків і секретів.\n"
+                + "🎟️ Купон — погашається власником. Для сертифікатів, знижок, квитків і програм лояльності.", keyboard(List.of(
+                row(button("🔗 Класичний", TYPE_PREFIX + QrType.CLASSIC)),
                 row(button("📄 Контент", TYPE_PREFIX + QrType.CONTENT)),
                 row(button("1️⃣ Одноразовий QR-код", TYPE_PREFIX + QrType.SINGLE_USE)),
                 row(button("🎟️ Купон", TYPE_PREFIX + QrType.COUPON)),
@@ -291,6 +297,13 @@ public class QrWorkflow {
     }
 
     public BotView selectType(User actor, long chatId, QrType type) {
+        if (type == QrType.CLASSIC) {
+            saveUser(actor, BotUser.State.WAITING_FOR_CLASSIC_URL, type, null, null);
+            analytics.track(AnalyticsAction.QR_TYPE_SELECTED, actor.getId(), chatId, null,
+                    Map.of("qrType", type.name()));
+            return new BotView("🔗 Надішліть повне посилання, яке починається з http:// або https://.",
+                    keyboard(List.of(row(button("❌ Скасувати", MENU_HOME)))));
+        }
         saveUser(actor, BotUser.State.WAITING_FOR_CONTENT, type, null, null);
         users.save(users.findById(actor.getId()).orElseThrow().withPendingContentItems(List.of()));
         analytics.track(AnalyticsAction.QR_TYPE_SELECTED, actor.getId(), chatId, null,
@@ -299,6 +312,43 @@ public class QrWorkflow {
         return new BotView("⏳ Очікую на контент…\n\n⚠️ Надішліть увесь контент ОДНИМ повідомленням,"
                 + " додавши не більше 10 файлів. Додаткові повідомлення або окремі завантаження можуть не обробитися.",
                 keyboard(List.of(row(button("❌ Скасувати", MENU_HOME)))));
+    }
+
+    public boolean isWaitingForClassicUrl(long userId) {
+        return hasState(userId, BotUser.State.WAITING_FOR_CLASSIC_URL);
+    }
+
+    public void acceptClassicUrl(Message message) {
+        requiredUser(message.getFrom().getId(), BotUser.State.WAITING_FOR_CLASSIC_URL);
+        var targetUrl = validatedHttpUrl(message.getText());
+        if (targetUrl == null) {
+            telegram.sendText(message.getChat().getId(), "❌ Це не валідне http/https посилання. Спробуйте ще раз.");
+            return;
+        }
+        var id = UUID.randomUUID().toString();
+        var qrCode = links.insertWithToken(token -> new QrCode(id, token, QrType.CLASSIC, QrStatus.ACTIVE,
+                message.getFrom().getId(), 0, 0, null, null, clock.instant(), 0, List.of(), null,
+                null, null, null, null, null, targetUrl, targetUrl));
+        saveUser(message.getFrom(), BotUser.State.IDLE, null, null, null);
+        var link = links.publicLink(qrCode);
+        telegram.sendPhoto(message.getChat().getId(), "qr-" + qrCode.id() + ".png",
+                imageGenerator.generatePng(link), "🔗 " + link);
+        analytics.track(AnalyticsAction.QR_CREATED, message.getFrom().getId(), message.getChat().getId(), qrCode);
+        var view = mainMenuView();
+        var navigationMessageId = telegram.sendInline(message.getChat().getId(),
+                "✨ Класичний QR-код створено.\n\n" + view.text(), view.keyboard());
+        setNavigationMessage(message.getFrom(), navigationMessageId);
+    }
+
+    private String validatedHttpUrl(String value) {
+        try {
+            var uri = URI.create(value == null ? "" : value.strip());
+            return ("http".equalsIgnoreCase(uri.getScheme()) || "https".equalsIgnoreCase(uri.getScheme()))
+                    && uri.getHost() != null && !uri.getHost().isBlank() && uri.getUserInfo() == null
+                    ? uri.toASCIIString() : null;
+        } catch (IllegalArgumentException exception) {
+            return null;
+        }
     }
 
     public boolean isWaitingForContent(long userId) {
@@ -440,9 +490,10 @@ public class QrWorkflow {
         }
         var all = filteredQrs(actor.getId(), preferences);
         var text = new StringBuilder("📚 Ваші QR-коди\n\n🔎 Знайдено: ").append(totalCount)
-                .append("\n\n📄 Контент · 1️⃣ Одноразовий · 🎟️ Купон")
+                .append("\n\n🔗 Класичний · 📄 Контент · 1️⃣ Одноразовий · 🎟️ Купон")
                 .append("\n✅ Активний · 🏁 Погашений · 🔒 Захищений · 📎 Вкладення");
         var rows = new ArrayList<List<InlineKeyboardButton>>();
+        rows.add(row(groupedTypeCheckboxButton(QrType.CLASSIC, preferences.types())));
         rows.add(row(
                 groupedTypeCheckboxButton(QrType.CONTENT, preferences.types()),
                 groupedTypeCheckboxButton(QrType.SINGLE_USE, preferences.types()),
@@ -854,7 +905,7 @@ public class QrWorkflow {
     }
 
     private BotView mainMenuView() {
-        return new BotView("👋 Оберіть дію.", keyboard(List.of(
+        return new BotView("👋 Створюйте короткі QR-посилання, Telegram-контент, одноразові подарунки та купони — зі статистикою відкриттів і захистом паролем.\n\nОберіть дію.", keyboard(List.of(
                 row(button("➕ Створити QR-код", MENU_CREATE)),
                 row(button("📚 Мої QR-коди", MENU_LIST)),
                 row(button("💬 Скарги та пропозиції", MENU_FEEDBACK)),
@@ -931,6 +982,7 @@ public class QrWorkflow {
 
     private String typeEmoji(QrType type) {
         return switch (type) {
+            case CLASSIC -> "🔗";
             case CONTENT -> "📄";
             case SINGLE_USE -> "1️⃣";
             case COUPON -> "🎟️";
@@ -975,7 +1027,8 @@ public class QrWorkflow {
 
     private String itemPreview(QrCode qrCode) {
         var preview = shortPreview(qrCode.previewText());
-        var fileCount = qrCode.contentItems() == null ? qrCode.contentMessageIds().size()
+        var fileCount = qrCode.type() == QrType.CLASSIC ? 0
+                : qrCode.contentItems() == null ? qrCode.contentMessageIds().size()
                 : qrCode.contentItems().stream().filter(item -> item.kind() != QrContentItem.Kind.TEXT).count();
         var content = new StringBuilder(preview);
         if (!preview.isBlank()) {
@@ -1030,6 +1083,7 @@ public class QrWorkflow {
 
     private String typeLabel(QrType type) {
         return switch (type) {
+            case CLASSIC -> "Класичний";
             case CONTENT -> "Контент";
             case SINGLE_USE -> "Одноразовий QR-код";
             case COUPON -> "Купон";
@@ -1255,6 +1309,9 @@ public class QrWorkflow {
 
     private ArrayList<Integer> previewContent(QrCode qrCode, long chatId) {
         var messageIds = new ArrayList<Integer>();
+        if (qrCode.type() == QrType.CLASSIC) {
+            return messageIds;
+        }
         if (qrCode.contentItems() != null && !qrCode.contentItems().isEmpty()) {
             messageIds.addAll(contentTelegram.sendContent(chatId, qrCode.contentItems()));
             return messageIds;

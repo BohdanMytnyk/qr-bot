@@ -15,6 +15,7 @@ import ua.mytnyk.telegram.common.model.common.webhook.UpdateWebhook;
 @Component
 public class FilterQrsCallbackHandler implements UpdateHandler {
     private static final Set<String> SUPPORTED_DATA = Set.of(
+            QrWorkflow.FILTER_TYPE_PREFIX + QrType.CLASSIC,
             QrWorkflow.FILTER_TYPE_PREFIX + QrType.CONTENT,
             QrWorkflow.FILTER_TYPE_PREFIX + QrType.SINGLE_USE,
             QrWorkflow.FILTER_TYPE_PREFIX + QrType.COUPON,

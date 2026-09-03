@@ -33,6 +33,7 @@ import ua.mytnyk.qrbot.repository.QrCodeRepository;
 import ua.mytnyk.qrbot.telegram.handler.menu.MainMenuCallbackHandler;
 import ua.mytnyk.qrbot.telegram.handler.qr.create.SelectQrTypeCallbackHandler;
 import ua.mytnyk.qrbot.telegram.handler.qr.list.DeleteQrCallbackHandler;
+import ua.mytnyk.qrbot.web.QrRedirectController;
 import ua.mytnyk.telegram.common.client.TelegramClient;
 import ua.mytnyk.telegram.common.config.TelegramProperties;
 import ua.mytnyk.telegram.common.model.common.api.BotCommand;
@@ -66,6 +67,7 @@ class QrWorkflowIT {
     @Autowired CustomerFeedbackRepository feedback;
     @Autowired DonationRepository donations;
     @Autowired MongoTemplate mongo;
+    @Autowired QrLinkService links;
     @Autowired RecordingTelegramClient telegram;
 
     @DynamicPropertySource
@@ -139,6 +141,38 @@ class QrWorkflowIT {
         assertThatThrownBy(() -> workflow.acceptFeedback(message(actor, 88, 11, "Suggestion")))
                 .isInstanceOf(IllegalStateException.class).hasMessageContaining("Unexpected user state");
         assertThat(feedback.findAll()).isEmpty();
+    }
+
+    @Test
+    void classicQrValidatesUrlCreatesShortLinkRedirectsAndCountsEveryOpening() {
+        var actor = actor(77, "alice");
+        var selection = workflow.selectType(actor, 88, QrType.CLASSIC);
+        assertThat(selection.text()).contains("http://").contains("https://");
+        assertThat(users.findById(77L).orElseThrow().state()).isEqualTo(BotUser.State.WAITING_FOR_CLASSIC_URL);
+        assertThat(workflow.isWaitingForClassicUrl(77L)).isTrue();
+
+        workflow.acceptClassicUrl(message(actor, 88, 1, "javascript:alert(1)"));
+        assertThat(qrs.findAll()).isEmpty();
+        assertThat(telegram.text()).singleElement().satisfies(value -> assertThat(value).contains("http/https"));
+        assertThat(users.findById(77L).orElseThrow().state()).isEqualTo(BotUser.State.WAITING_FOR_CLASSIC_URL);
+
+        workflow.acceptClassicUrl(message(actor, 88, 2, " https://example.com/menu?q=lunch "));
+        var created = qrs.findAll().get(0);
+        assertThat(created.type()).isEqualTo(QrType.CLASSIC);
+        assertThat(created.targetUrl()).isEqualTo("https://example.com/menu?q=lunch");
+        assertThat(created.token()).matches("[A-Za-z0-9]{8}");
+        assertThat(created.openCount()).isZero();
+        assertThat(users.findById(77L).orElseThrow().state()).isEqualTo(BotUser.State.IDLE);
+        assertThat(telegram.photos()).singleElement().satisfies(value ->
+                assertThat(value).contains("qr-").contains(".png").contains("/" + created.token()));
+
+        var redirect = new QrRedirectController(qrs, links, mongo);
+        assertThat(redirect.redirect(created.token()).getHeaders().getLocation())
+                .hasToString("https://example.com/menu?q=lunch");
+        assertThat(redirect.redirect(created.token()).getHeaders().getLocation())
+                .hasToString("https://example.com/menu?q=lunch");
+        assertThat(qrs.findById(created.id()).orElseThrow().openCount()).isEqualTo(2);
+        assertThat(accesses.findAll()).isEmpty();
     }
 
     @Test

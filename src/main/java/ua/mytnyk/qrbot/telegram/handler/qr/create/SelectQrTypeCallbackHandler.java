@@ -13,6 +13,7 @@ import java.util.Set;
 @Component
 public class SelectQrTypeCallbackHandler implements UpdateHandler {
     private static final Set<String> SUPPORTED_DATA = Set.of(
+            QrWorkflow.TYPE_PREFIX + QrType.CLASSIC,
             QrWorkflow.TYPE_PREFIX + QrType.CONTENT,
             QrWorkflow.TYPE_PREFIX + QrType.SINGLE_USE,
             QrWorkflow.TYPE_PREFIX + QrType.COUPON);

@@ -14,7 +14,18 @@ public record QrCode(@Id String id,
                      long ownerId, long channelId, int messageId, byte[] passwordSalt,
                      byte[] passwordHash, Instant createdAt, long openCount, List<Integer> messageIds,
                      List<QrContentItem> contentItems, Long redeemedByUserId, String redeemedByUsername,
-                     String redeemedByName, Instant redeemedAt, Boolean ignorePasswordCase, String previewText) {
+                     String redeemedByName, Instant redeemedAt, Boolean ignorePasswordCase, String previewText,
+                     String targetUrl) {
+
+    public QrCode(String id, String token, QrType type, QrStatus status, long ownerId, long channelId,
+                  int messageId, byte[] passwordSalt, byte[] passwordHash, Instant createdAt, long openCount,
+                  List<Integer> messageIds, List<QrContentItem> contentItems, Long redeemedByUserId,
+                  String redeemedByUsername, String redeemedByName, Instant redeemedAt,
+                  Boolean ignorePasswordCase, String previewText) {
+        this(id, token, type, status, ownerId, channelId, messageId, passwordSalt, passwordHash, createdAt,
+                openCount, messageIds, contentItems, redeemedByUserId, redeemedByUsername, redeemedByName,
+                redeemedAt, ignorePasswordCase, previewText, null);
+    }
 
     public List<Integer> contentMessageIds() {
         return messageIds == null || messageIds.isEmpty() ? List.of(messageId) : messageIds;

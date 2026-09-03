@@ -95,6 +95,7 @@ class CallbackHandlerContractTest {
                 Arguments.of("donation menu", factory(DonationMenuCallbackHandler::new), "menu:donate"),
                 Arguments.of("donation amount", factory(DonationAmountCallbackHandler::new), "donate:amount:100"),
                 Arguments.of("select type", factory(SelectQrTypeCallbackHandler::new), "create:type:CONTENT"),
+                Arguments.of("select classic type", factory(SelectQrTypeCallbackHandler::new), "create:type:CLASSIC"),
                 Arguments.of("finish content", factory(FinishContentQrCallbackHandler::new), "create:content:done"),
                 Arguments.of("skip password", factory(SkipCreationPasswordCallbackHandler::new), "create:protection:skip"),
                 Arguments.of("creation case", factory(ChoosePasswordCaseCallbackHandler::new), "create:password-case:ignore"),
