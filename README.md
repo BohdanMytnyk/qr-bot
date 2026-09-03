@@ -103,10 +103,12 @@ ssh macserver "cd /home/serveradmin/apps/qr-bot-prod && docker compose logs -f a
 ssh macserver "cd /home/serveradmin/apps/qr-bot-prod && docker compose down"
 ```
 
-The application also writes structured JSON logs to the persistent
-`qr-bot-prod-application-logs` Docker volume. Logs roll daily or whenever a
-segment reaches 20 MB, are gzip-compressed, and are retained for 35 days.
-The volume survives routine application replacement and `docker compose down`.
+The application also writes structured JSON Lines logs to the persistent
+`qr-bot-prod-application-logs` Docker volume. Each log event is appended
+immediately as one independent JSON object on one line; the file is not one
+large JSON array. The active file rolls daily or whenever it reaches 20 MB.
+Completed segments are gzip-compressed and retained for 35 days. The volume
+survives routine application replacement and `docker compose down`.
 
 Read the current structured log remotely:
 
@@ -114,11 +116,62 @@ Read the current structured log remotely:
 ssh macserver "docker exec qr-bot-prod-app tail -n 200 /var/log/qr-bot/application.json"
 ```
 
-Filter it locally by correlation or customer identifier:
+Filter the live stream locally by correlation or customer identifier:
 
 ```powershell
 ssh macserver "docker exec qr-bot-prod-app cat /var/log/qr-bot/application.json" | Select-String 'customerId=123|updateId=456'
 ```
+
+Download the current log to the Windows machine for offline analysis:
+
+```powershell
+ssh macserver "docker exec qr-bot-prod-app cat /var/log/qr-bot/application.json" | Set-Content -Encoding utf8 .\qr-bot-logs.jsonl
+```
+
+Inspect the fields emitted by the currently configured Spring Boot structured
+logging format:
+
+```powershell
+Get-Content .\qr-bot-logs.jsonl | Select-Object -First 1 | ConvertFrom-Json | Format-List *
+```
+
+Open the log as an interactive, searchable table:
+
+```powershell
+Get-Content .\qr-bot-logs.jsonl |
+    ConvertFrom-Json |
+    Select-Object '@timestamp', level, logger_name, message |
+    Out-GridView
+```
+
+Show warnings and errors from the last six hours:
+
+```powershell
+$since = (Get-Date).AddHours(-6)
+
+Get-Content .\qr-bot-logs.jsonl |
+    ConvertFrom-Json |
+    Where-Object {
+        [datetimeoffset]$_.'@timestamp' -ge $since -and
+        $_.level -in @('WARN', 'ERROR')
+    } |
+    Select-Object '@timestamp', level, logger_name, message |
+    Out-GridView
+```
+
+Find events for a particular customer or Telegram update:
+
+```powershell
+Get-Content .\qr-bot-logs.jsonl |
+    ConvertFrom-Json |
+    Where-Object { $_.message -match 'customerId=123|updateId=456' } |
+    Select-Object '@timestamp', level, message |
+    Format-Table -Wrap
+```
+
+Logs may contain customer identifiers and operational details. Keep downloaded
+files private and prefer these local tools over uploading logs to a public JSON
+viewer.
 
 `docker compose down` preserves the external-name-stable `qr-bot-prod-mongodb-data` volume. Do not add `--volumes` unless permanent database deletion is intended. MongoDB creates its application user only when the data volume is initialized, so changing MongoDB credentials in `.env` later also requires rotating the user inside MongoDB.
 
