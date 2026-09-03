@@ -13,6 +13,7 @@ import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.mongodb.core.FindAndModifyOptions;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.query.Criteria;
@@ -23,6 +24,7 @@ import ua.mytnyk.qrbot.config.QrBotProperties;
 import ua.mytnyk.qrbot.domain.AnalyticsAction;
 import ua.mytnyk.qrbot.domain.BotUser;
 import ua.mytnyk.qrbot.domain.CustomerFeedback;
+import ua.mytnyk.qrbot.domain.Donation;
 import ua.mytnyk.qrbot.domain.QrAccess;
 import ua.mytnyk.qrbot.domain.QrCode;
 import ua.mytnyk.qrbot.domain.QrContentItem;
@@ -33,6 +35,7 @@ import ua.mytnyk.qrbot.domain.QrType;
 import ua.mytnyk.qrbot.domain.PendingPasswordOptions;
 import ua.mytnyk.qrbot.repository.BotUserRepository;
 import ua.mytnyk.qrbot.repository.CustomerFeedbackRepository;
+import ua.mytnyk.qrbot.repository.DonationRepository;
 import ua.mytnyk.qrbot.repository.QrAccessRepository;
 import ua.mytnyk.qrbot.repository.QrCodeRepository;
 import ua.mytnyk.qrbot.telegram.QrContentTelegramService;
@@ -41,6 +44,11 @@ import ua.mytnyk.telegram.common.model.common.api.markup.keyboard.inline.InlineK
 import ua.mytnyk.telegram.common.model.common.api.markup.keyboard.inline.InlineKeyboardButton;
 import ua.mytnyk.telegram.common.model.common.webhook.Message;
 import ua.mytnyk.telegram.common.model.common.webhook.User;
+import ua.mytnyk.telegram.common.model.common.webhook.PreCheckoutQuery;
+import ua.mytnyk.telegram.common.model.common.api.invoice.InvoiceCurrency;
+import ua.mytnyk.telegram.common.model.common.api.invoice.InvoicePrice;
+import ua.mytnyk.telegram.common.model.common.api.invoice.SendInvoiceRequest;
+import ua.mytnyk.telegram.common.model.common.api.precheckout.PreCheckoutAnswerRequest;
 
 @Service
 public class QrWorkflow {
@@ -48,6 +56,8 @@ public class QrWorkflow {
     public static final String MENU_CREATE = "menu:create";
     public static final String MENU_LIST = "menu:list";
     public static final String MENU_FEEDBACK = "menu:feedback";
+    public static final String MENU_DONATE = "menu:donate";
+    public static final String DONATE_AMOUNT_PREFIX = "donate:amount:";
     public static final String TYPE_PREFIX = "create:type:";
     public static final String VIEW_PREFIX = "qr:view:";
     public static final String SHOW_QR_PREFIX = "qr:image:";
@@ -69,6 +79,7 @@ public class QrWorkflow {
     private static final int MAX_MEDIA_ITEMS = 10;
     private static final int MAX_TEXT_LENGTH = 4096;
     private static final int MAX_MEDIA_CAPTION_LENGTH = 1024;
+    private static final int MAX_DONATION_STARS = 10_000;
     private static final DateTimeFormatter DISPLAY_DATE = DateTimeFormatter
             .ofPattern("dd MMM yyyy, HH:mm", Locale.forLanguageTag("uk-UA"))
             .withZone(ZoneId.of("Europe/Kyiv"));
@@ -85,6 +96,7 @@ public class QrWorkflow {
     private final QrAnalytics analytics;
     private final QrLinkService links;
     private final CustomerFeedbackRepository feedback;
+    private final DonationRepository donations;
     private final Clock clock = Clock.systemUTC();
 
     public QrWorkflow(BotUserRepository users, QrCodeRepository qrCodes, QrAccessRepository accesses,
@@ -92,7 +104,7 @@ public class QrWorkflow {
                       QrContentTelegramService contentTelegram,
                       QrBotProperties properties, List<ContentDeliveryStrategy> deliveryStrategies,
                       MongoTemplate mongo, QrAnalytics analytics, QrLinkService links,
-                      CustomerFeedbackRepository feedback) {
+                      CustomerFeedbackRepository feedback, DonationRepository donations) {
         this.users = users;
         this.qrCodes = qrCodes;
         this.accesses = accesses;
@@ -106,6 +118,7 @@ public class QrWorkflow {
         this.analytics = analytics;
         this.links = links;
         this.feedback = feedback;
+        this.donations = donations;
     }
 
     public void showMainMenu(Message message) {
@@ -160,6 +173,16 @@ public class QrWorkflow {
                 keyboard(List.of(row(button("❌ Скасувати", MENU_HOME)))));
     }
 
+    public void showPaymentSupport(Message message) {
+        deleteNavigation(message.getFrom().getId(), message.getChat().getId());
+        saveUser(message.getFrom(), BotUser.State.WAITING_FOR_FEEDBACK, null, null, null);
+        var navigationMessageId = telegram.sendInline(message.getChat().getId(),
+                "💳 Опишіть проблему з платежем одним текстовим повідомленням.",
+                keyboard(List.of(row(button("❌ Скасувати", MENU_HOME)))));
+        setNavigationMessage(message.getFrom(), navigationMessageId);
+        setDisplayedMessages(message.getFrom(), List.of(navigationMessageId));
+    }
+
     public boolean isWaitingForFeedback(long userId) {
         return hasState(userId, BotUser.State.WAITING_FOR_FEEDBACK);
     }
@@ -179,6 +202,92 @@ public class QrWorkflow {
                 "✅ Дякуємо! Ваше повідомлення збережено.\n\n" + view.text(), view.keyboard());
         setNavigationMessage(message.getFrom(), navigationMessageId);
         setDisplayedMessages(message.getFrom(), List.of(navigationMessageId));
+    }
+
+    public BotView donationMenu(User actor) {
+        saveUser(actor, BotUser.State.IDLE, null, null, null);
+        return new BotView("⭐ Підтримати бота Telegram Stars", keyboard(List.of(
+                row(button("⭐ 1", DONATE_AMOUNT_PREFIX + "1"), button("⭐ 10", DONATE_AMOUNT_PREFIX + "10")),
+                row(button("⭐ 50", DONATE_AMOUNT_PREFIX + "50"), button("⭐ 100", DONATE_AMOUNT_PREFIX + "100")),
+                row(button("⭐ 500", DONATE_AMOUNT_PREFIX + "500"), button("Інша сума", DONATE_AMOUNT_PREFIX + "other")),
+                row(button("🏠 Головне меню", MENU_HOME)))));
+    }
+
+    public BotView beginCustomDonation(User actor) {
+        saveUser(actor, BotUser.State.WAITING_FOR_DONATION_AMOUNT, null, null, null);
+        return new BotView("⭐ Введіть кількість Stars від 1 до " + MAX_DONATION_STARS + ".",
+                keyboard(List.of(row(button("❌ Скасувати", MENU_HOME)))));
+    }
+
+    public boolean isWaitingForDonationAmount(long userId) {
+        return hasState(userId, BotUser.State.WAITING_FOR_DONATION_AMOUNT);
+    }
+
+    public void acceptCustomDonationAmount(Message message) {
+        requiredUser(message.getFrom().getId(), BotUser.State.WAITING_FOR_DONATION_AMOUNT);
+        int amount;
+        try {
+            amount = Integer.parseInt(message.getText().strip());
+        } catch (NumberFormatException exception) {
+            telegram.sendText(message.getChat().getId(), "Введіть ціле число від 1 до " + MAX_DONATION_STARS + ".");
+            return;
+        }
+        if (!validDonationAmount(amount)) {
+            telegram.sendText(message.getChat().getId(), "Сума має бути від 1 до " + MAX_DONATION_STARS + " Stars.");
+            return;
+        }
+        sendDonationInvoice(message.getFrom(), message.getChat().getId(), amount);
+        saveUser(message.getFrom(), BotUser.State.IDLE, null, null, null);
+    }
+
+    public void sendDonationInvoice(User actor, long chatId, int amount) {
+        if (!validDonationAmount(amount)) {
+            throw new IllegalArgumentException("Donation amount must be between 1 and " + MAX_DONATION_STARS);
+        }
+        var payload = "donation:" + actor.getId() + ":" + amount + ":" + UUID.randomUUID();
+        telegram.sendInvoice(SendInvoiceRequest.builder().chatId(chatId).title("Підтримка QR-бота")
+                .description("Добровільна підтримка розвитку та роботи бота")
+                .payload(payload).currency(InvoiceCurrency.XTR)
+                .prices(List.of(InvoicePrice.builder().label("Підтримка").amount(amount).build())).build());
+    }
+
+    public void handleDonationPreCheckout(PreCheckoutQuery query) {
+        var valid = query.getFrom() != null && query.getCurrency() == InvoiceCurrency.XTR
+                && validDonationPayload(query.getInvoicePayload(), query.getFrom().getId(), query.getTotalAmount());
+        telegram.answerPreCheckoutQuery(PreCheckoutAnswerRequest.builder().preCheckoutQueryId(query.getId())
+                .ok(valid).errorMessage(valid ? null : "Не вдалося перевірити платіж. Створіть новий invoice.").build());
+    }
+
+    public void acceptSuccessfulDonation(Message message) {
+        var payment = message.getSuccessfulPayment();
+        if (message.getFrom() == null || payment.getCurrency() != InvoiceCurrency.XTR
+                || !validDonationPayload(payment.getInvoicePayload(), message.getFrom().getId(), payment.getTotalAmount())) {
+            log.error("Invalid successful donation payload customerId={}",
+                    message.getFrom() == null ? null : message.getFrom().getId());
+            return;
+        }
+        try {
+            donations.insert(new Donation(payment.getTelegramPaymentChargeId(), payment.getInvoicePayload(),
+                    message.getFrom().getId(), message.getFrom().getUsername(), payment.getTotalAmount(), clock.instant()));
+        } catch (DuplicateKeyException exception) {
+            log.info("Duplicate successful donation ignored chargeId={}", payment.getTelegramPaymentChargeId());
+            return;
+        }
+        telegram.sendText(message.getChat().getId(), "💛 Дякуємо за підтримку у " + payment.getTotalAmount() + " ⭐!");
+    }
+
+    private boolean validDonationPayload(String payload, long customerId, int amount) {
+        if (payload == null || !validDonationAmount(amount)) {
+            return false;
+        }
+        var parts = payload.split(":", 4);
+        return parts.length == 4 && "donation".equals(parts[0])
+                && Long.toString(customerId).equals(parts[1]) && Integer.toString(amount).equals(parts[2])
+                && !parts[3].isBlank();
+    }
+
+    private boolean validDonationAmount(int amount) {
+        return amount >= 1 && amount <= MAX_DONATION_STARS;
     }
 
     public BotView selectType(User actor, long chatId, QrType type) {
@@ -748,7 +857,8 @@ public class QrWorkflow {
         return new BotView("👋 Оберіть дію.", keyboard(List.of(
                 row(button("➕ Створити QR-код", MENU_CREATE)),
                 row(button("📚 Мої QR-коди", MENU_LIST)),
-                row(button("💬 Скарги та пропозиції", MENU_FEEDBACK)))));
+                row(button("💬 Скарги та пропозиції", MENU_FEEDBACK)),
+                row(button("⭐ Підтримати бота", MENU_DONATE)))));
     }
 
     private BotView contentReadyView(int count, String previewText) {

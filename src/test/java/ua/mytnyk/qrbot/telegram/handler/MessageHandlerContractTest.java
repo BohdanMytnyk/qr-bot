@@ -11,6 +11,7 @@ import ua.mytnyk.qrbot.telegram.handler.qr.create.SetProtectedQrPasswordMessageH
 import ua.mytnyk.qrbot.telegram.handler.qr.list.SetQrPasswordMessageHandler;
 import ua.mytnyk.qrbot.telegram.handler.qr.open.ProvideProtectedQrPasswordMessageHandler;
 import ua.mytnyk.qrbot.telegram.handler.feedback.SubmitFeedbackMessageHandler;
+import ua.mytnyk.qrbot.telegram.handler.donation.CustomDonationAmountMessageHandler;
 import ua.mytnyk.telegram.common.handler.UpdateHandler;
 import ua.mytnyk.telegram.common.model.common.webhook.Chat;
 import ua.mytnyk.telegram.common.model.common.webhook.Message;
@@ -75,7 +76,10 @@ class MessageHandlerContractTest {
                         (HandlerCall) (workflow, message) -> verify(workflow).acceptOpeningPassword(message)),
                 Arguments.of("feedback", (Function<QrWorkflow, UpdateHandler>) SubmitFeedbackMessageHandler::new,
                         (StateCheck) (workflow, id, value) -> when(workflow.isWaitingForFeedback(id)).thenReturn(value),
-                        (HandlerCall) (workflow, message) -> verify(workflow).acceptFeedback(message))
+                        (HandlerCall) (workflow, message) -> verify(workflow).acceptFeedback(message)),
+                Arguments.of("custom donation", (Function<QrWorkflow, UpdateHandler>) CustomDonationAmountMessageHandler::new,
+                        (StateCheck) (workflow, id, value) -> when(workflow.isWaitingForDonationAmount(id)).thenReturn(value),
+                        (HandlerCall) (workflow, message) -> verify(workflow).acceptCustomDonationAmount(message))
         );
     }
 

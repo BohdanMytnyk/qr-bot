@@ -11,18 +11,21 @@ import org.mockito.ArgumentCaptor;
 import static org.mockito.ArgumentMatchers.eq;
 
 class StartupNotifierTest {
+    private static final List<BotCommand> COMMANDS = List.of(new BotCommand("start", "🏠 Меню"),
+            new BotCommand("paysupport", "💳 Підтримка з платежів"));
+
     @Test
     void publishesCommandsAndSkipsNotificationWhenChatIsUnset() {
         var telegram = mock(TelegramClient.class);
         new StartupNotifier(telegram, 0).notifyRestart();
-        verify(telegram).publishCommands(List.of(new BotCommand("start", "🏠 Меню")));
+        verify(telegram).publishCommands(COMMANDS);
     }
 
     @Test
     void publishesCommandsAndSendsNotificationToConfiguredChat() {
         var telegram = mock(TelegramClient.class);
         new StartupNotifier(telegram, 123L).notifyRestart();
-        verify(telegram).publishCommands(List.of(new BotCommand("start", "🏠 Меню")));
+        verify(telegram).publishCommands(COMMANDS);
         var text = ArgumentCaptor.forClass(String.class);
         verify(telegram).sendText(eq(123L), text.capture());
         org.assertj.core.api.Assertions.assertThat(text.getValue()).isNotBlank();

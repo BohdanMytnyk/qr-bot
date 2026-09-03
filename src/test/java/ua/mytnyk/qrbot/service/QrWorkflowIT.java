@@ -27,6 +27,7 @@ import ua.mytnyk.qrbot.domain.QrStatus;
 import ua.mytnyk.qrbot.domain.QrType;
 import ua.mytnyk.qrbot.repository.BotUserRepository;
 import ua.mytnyk.qrbot.repository.CustomerFeedbackRepository;
+import ua.mytnyk.qrbot.repository.DonationRepository;
 import ua.mytnyk.qrbot.repository.QrAccessRepository;
 import ua.mytnyk.qrbot.repository.QrCodeRepository;
 import ua.mytnyk.qrbot.telegram.handler.menu.MainMenuCallbackHandler;
@@ -42,6 +43,11 @@ import ua.mytnyk.telegram.common.model.common.webhook.Message;
 import ua.mytnyk.telegram.common.model.common.webhook.User;
 import ua.mytnyk.telegram.common.model.common.webhook.CallbackQuery;
 import ua.mytnyk.telegram.common.model.common.webhook.UpdateWebhook;
+import ua.mytnyk.telegram.common.model.common.webhook.PreCheckoutQuery;
+import ua.mytnyk.telegram.common.model.common.webhook.SuccessfulPayment;
+import ua.mytnyk.telegram.common.model.common.api.invoice.InvoiceCurrency;
+import ua.mytnyk.telegram.common.model.common.api.invoice.SendInvoiceRequest;
+import ua.mytnyk.telegram.common.model.common.api.precheckout.PreCheckoutAnswerRequest;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -58,6 +64,7 @@ class QrWorkflowIT {
     @Autowired QrCodeRepository qrs;
     @Autowired QrAccessRepository accesses;
     @Autowired CustomerFeedbackRepository feedback;
+    @Autowired DonationRepository donations;
     @Autowired MongoTemplate mongo;
     @Autowired RecordingTelegramClient telegram;
 
@@ -132,6 +139,69 @@ class QrWorkflowIT {
         assertThatThrownBy(() -> workflow.acceptFeedback(message(actor, 88, 11, "Suggestion")))
                 .isInstanceOf(IllegalStateException.class).hasMessageContaining("Unexpected user state");
         assertThat(feedback.findAll()).isEmpty();
+    }
+
+    @Test
+    void donationFlowSendsInvoiceValidatesCheckoutAndStoresSuccessfulPaymentOnce() {
+        var actor = actor(77, "alice");
+        var menu = workflow.donationMenu(actor);
+        assertThat(menu.text()).contains("Stars");
+
+        workflow.sendDonationInvoice(actor, 88, 50);
+        assertThat(telegram.invoices()).singleElement().satisfies(invoice -> {
+            assertThat(invoice.getChatId()).isEqualTo(88L);
+            assertThat(invoice.getCurrency()).isEqualTo(InvoiceCurrency.XTR);
+            assertThat(invoice.getPrices()).singleElement().satisfies(price -> assertThat(price.getAmount()).isEqualTo(50));
+            assertThat(invoice.getPayload()).startsWith("donation:77:50:");
+        });
+        var payload = telegram.invoices().get(0).getPayload();
+        workflow.handleDonationPreCheckout(PreCheckoutQuery.builder().id("checkout").from(actor)
+                .currency(InvoiceCurrency.XTR).totalAmount(50).invoicePayload(payload).build());
+        assertThat(telegram.checkoutAnswers()).singleElement().satisfies(answer -> {
+            assertThat(answer.getPreCheckoutQueryId()).isEqualTo("checkout");
+            assertThat(answer.isOk()).isTrue();
+            assertThat(answer.getErrorMessage()).isNull();
+        });
+
+        var payment = SuccessfulPayment.builder().currency(InvoiceCurrency.XTR).totalAmount(50)
+                .invoicePayload(payload).telegramPaymentChargeId("charge-1").build();
+        var paymentMessage = Message.builder().from(actor).chat(Chat.builder().id(88).build())
+                .successfulPayment(payment).build();
+        workflow.acceptSuccessfulDonation(paymentMessage);
+        workflow.acceptSuccessfulDonation(paymentMessage);
+        assertThat(donations.findAll()).singleElement().satisfies(donation -> {
+            assertThat(donation.telegramPaymentChargeId()).isEqualTo("charge-1");
+            assertThat(donation.customerId()).isEqualTo(77L);
+            assertThat(donation.username()).isEqualTo("alice");
+            assertThat(donation.amount()).isEqualTo(50);
+            assertThat(donation.paidAt()).isNotNull();
+        });
+    }
+
+    @Test
+    void customDonationAndPaymentValidationCoverInvalidBranches() {
+        var actor = actor(77, "alice");
+        workflow.beginCustomDonation(actor);
+        workflow.acceptCustomDonationAmount(message(actor, 88, 1, "not-a-number"));
+        workflow.acceptCustomDonationAmount(message(actor, 88, 2, "10001"));
+        assertThat(telegram.invoices()).isEmpty();
+        assertThat(telegram.text()).hasSize(2);
+
+        workflow.acceptCustomDonationAmount(message(actor, 88, 3, "10"));
+        assertThat(telegram.invoices()).singleElement().satisfies(invoice ->
+                assertThat(invoice.getPrices().get(0).getAmount()).isEqualTo(10));
+        assertThat(users.findById(77L).orElseThrow().state()).isEqualTo(BotUser.State.IDLE);
+
+        workflow.handleDonationPreCheckout(PreCheckoutQuery.builder().id("bad").from(actor)
+                .currency(InvoiceCurrency.XTR).totalAmount(50).invoicePayload("invalid").build());
+        assertThat(telegram.checkoutAnswers()).singleElement().satisfies(answer -> {
+            assertThat(answer.isOk()).isFalse();
+            assertThat(answer.getErrorMessage()).isNotBlank();
+        });
+        workflow.acceptSuccessfulDonation(Message.builder().from(actor).chat(Chat.builder().id(88).build())
+                .successfulPayment(SuccessfulPayment.builder().currency(InvoiceCurrency.XTR).totalAmount(1)
+                        .invoicePayload("invalid").telegramPaymentChargeId("bad-charge").build()).build());
+        assertThat(donations.findAll()).isEmpty();
     }
 
     @Test
@@ -469,6 +539,8 @@ class QrWorkflowIT {
         private final List<String> deleted = new ArrayList<>();
         private final List<String> edited = new ArrayList<>();
         private final List<String> photos = new ArrayList<>();
+        private final List<SendInvoiceRequest> invoices = new ArrayList<>();
+        private final List<PreCheckoutAnswerRequest> checkoutAnswers = new ArrayList<>();
 
         RecordingTelegramClient() {
             super(org.springframework.web.client.RestClient.create(), properties());
@@ -497,12 +569,17 @@ class QrWorkflowIT {
             return media.stream().map(ignored -> nextId++).toList();
         }
         @Override public void publishCommands(List<BotCommand> commands) { throw new AssertionError("disabled notifier ran"); }
-        void reset() { nextId = 1; inline.clear(); text.clear(); deleted.clear(); edited.clear(); photos.clear(); }
+        @Override public void sendInvoice(SendInvoiceRequest request) { invoices.add(request); }
+        @Override public void answerPreCheckoutQuery(PreCheckoutAnswerRequest request) { checkoutAnswers.add(request); }
+        void reset() { nextId = 1; inline.clear(); text.clear(); deleted.clear(); edited.clear(); photos.clear();
+            invoices.clear(); checkoutAnswers.clear(); }
         List<String> inline() { return List.copyOf(inline); }
         List<String> text() { return List.copyOf(text); }
         List<String> deleted() { return List.copyOf(deleted); }
         List<String> edited() { return List.copyOf(edited); }
         List<String> photos() { return List.copyOf(photos); }
+        List<SendInvoiceRequest> invoices() { return List.copyOf(invoices); }
+        List<PreCheckoutAnswerRequest> checkoutAnswers() { return List.copyOf(checkoutAnswers); }
         private static TelegramProperties properties() {
             var properties = new TelegramProperties(); properties.setToken("isolated-test-token"); return properties;
         }
