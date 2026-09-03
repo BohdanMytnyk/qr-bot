@@ -211,7 +211,8 @@ class QrWorkflowIT {
         workflow.showQrDetails(protectedQr.id(), actor, 88);
         workflow.showQrImage(protectedQr.id(), actor, 88);
         assertThat(telegram.photos()).singleElement()
-                .satisfies(value -> assertThat(value).contains("isolated_test_bot"));
+                .satisfies(value -> assertThat(value).contains("https://qr.twob.cc/")
+                        .matches(".*https://qr\\.twob\\.cc/[A-Za-z0-9]{8}.*"));
 
         var redeemed = new QrCode("10000000-0000-0000-0000-000000000003", null, QrType.COUPON,
                 QrStatus.REDEEMED, 77, -100123, 20, null, null, Instant.now(), 2, List.of(20),
@@ -409,7 +410,9 @@ class QrWorkflowIT {
 
     private static QrCode qr(String id, QrType type, QrStatus status, long owner,
                              byte[] salt, byte[] hash) {
-        return new QrCode(id, null, type, status, owner, -100123, 20, salt, hash, Instant.now(), 0,
+        var compactId = id.replace("-", "");
+        var token = compactId.substring(compactId.length() - 8);
+        return new QrCode(id, token, type, status, owner, -100123, 20, salt, hash, Instant.now(), 0,
                 List.of(20), List.of(textItem("preview content", 20)), null, null, null, null,
                 false, "preview content");
     }

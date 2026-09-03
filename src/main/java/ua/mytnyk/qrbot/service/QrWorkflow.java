@@ -80,13 +80,14 @@ public class QrWorkflow {
     private final List<ContentDeliveryStrategy> deliveryStrategies;
     private final MongoTemplate mongo;
     private final QrAnalytics analytics;
+    private final QrLinkService links;
     private final Clock clock = Clock.systemUTC();
 
     public QrWorkflow(BotUserRepository users, QrCodeRepository qrCodes, QrAccessRepository accesses,
                       PasswordHasher passwords, QrImageGenerator imageGenerator, TelegramClient telegram,
                       QrContentTelegramService contentTelegram,
                       QrBotProperties properties, List<ContentDeliveryStrategy> deliveryStrategies,
-                      MongoTemplate mongo, QrAnalytics analytics) {
+                      MongoTemplate mongo, QrAnalytics analytics, QrLinkService links) {
         this.users = users;
         this.qrCodes = qrCodes;
         this.accesses = accesses;
@@ -98,6 +99,7 @@ public class QrWorkflow {
         this.deliveryStrategies = deliveryStrategies;
         this.mongo = mongo;
         this.analytics = analytics;
+        this.links = links;
     }
 
     public void showMainMenu(Message message) {
@@ -416,7 +418,7 @@ public class QrWorkflow {
             sendMainNavigation(actor, chatId, "🔍 QR-код не знайдено.\n\n");
             return;
         }
-        var link = deepLink(qrCode.id());
+        var link = links.publicLink(qrCode);
         var qrMessageId = telegram.sendPhoto(chatId, "qr-" + qrCode.id() + ".png", imageGenerator.generatePng(link),
                 "🔗 " + link, keyboard(List.of(row(button("⬅️ Назад до QR-коду", VIEW_PREFIX + qrCode.id())),
                         row(button("📚 Мої QR-коди", MENU_LIST), button("🏠 Головне меню", MENU_HOME)))));
@@ -630,12 +632,12 @@ public class QrWorkflow {
         var contentItems = users.findById(actor.getId()).map(BotUser::pendingContentItems)
                 .filter(items -> !items.isEmpty()).map(List::copyOf).orElse(null);
         var previewText = previewText(contentItems);
-        var qrCode = qrCodes.insert(new QrCode(id, null, type, QrStatus.ACTIVE, actor.getId(),
-                properties.getContentChannelId(), storedMessageId, salt, hash, clock.instant(), 0,
-                List.copyOf(finalizedMessageIds), contentItems, null, null, null, null,
-                ignorePasswordCase, previewText));
+        var qrCode = links.insertWithToken(token -> new QrCode(id, token,
+                type, QrStatus.ACTIVE, actor.getId(), properties.getContentChannelId(), storedMessageId,
+                salt, hash, clock.instant(), 0, List.copyOf(finalizedMessageIds), contentItems,
+                null, null, null, null, ignorePasswordCase, previewText));
         saveUser(actor, BotUser.State.IDLE, null, null, null);
-        var link = deepLink(qrCode.id());
+        var link = links.publicLink(qrCode);
         telegram.sendPhoto(chatId, "qr-" + qrCode.id() + ".png",
                 imageGenerator.generatePng(link), "🔗 " + link);
         analytics.track(AnalyticsAction.QR_CREATED, actor.getId(), chatId, qrCode);
@@ -1115,11 +1117,6 @@ public class QrWorkflow {
         }
         messageIds.addAll(telegram.copyMessages(chatId, qrCode.channelId(), qrCode.contentMessageIds()));
         return messageIds;
-    }
-
-    private String deepLink(String id) {
-        var username = properties.getBotUsername().replaceFirst("^@", "");
-        return "https://t.me/" + username + "?start=" + id;
     }
 
     private InlineKeyboard keyboard(List<List<InlineKeyboardButton>> rows) {

@@ -9,6 +9,9 @@ analytics:
   enabled: true
   collection: analytics_events
   retention: 31d
+qr:
+  links:
+    public-base-url: ${QR_PUBLIC_BASE_URL:https://qr.twob.cc}
 telegram:
   startup-notifier:
     enabled: ${TELEGRAM_STARTUP_NOTIFIER_ENABLED:true}
