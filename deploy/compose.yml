@@ -76,6 +76,8 @@ services:
     depends_on:
       mongodb:
         condition: service_healthy
+    volumes:
+      - application-logs:/var/log/qr-bot
     ports:
       - "127.0.0.1:8080:8080"
     networks:
@@ -99,6 +101,8 @@ services:
 volumes:
   mongodb-data:
     name: qr-bot-prod-mongodb-data
+  application-logs:
+    name: qr-bot-prod-application-logs
 
 networks:
   mongodb-network:

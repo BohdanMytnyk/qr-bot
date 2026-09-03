@@ -103,6 +103,23 @@ ssh macserver "cd /home/serveradmin/apps/qr-bot-prod && docker compose logs -f a
 ssh macserver "cd /home/serveradmin/apps/qr-bot-prod && docker compose down"
 ```
 
+The application also writes structured JSON logs to the persistent
+`qr-bot-prod-application-logs` Docker volume. Logs roll daily or whenever a
+segment reaches 20 MB, are gzip-compressed, and are retained for 35 days.
+The volume survives routine application replacement and `docker compose down`.
+
+Read the current structured log remotely:
+
+```powershell
+ssh macserver "docker exec qr-bot-prod-app tail -n 200 /var/log/qr-bot/application.json"
+```
+
+Filter it locally by correlation or customer identifier:
+
+```powershell
+ssh macserver "docker exec qr-bot-prod-app cat /var/log/qr-bot/application.json" | Select-String 'customerId=123|updateId=456'
+```
+
 `docker compose down` preserves the external-name-stable `qr-bot-prod-mongodb-data` volume. Do not add `--volumes` unless permanent database deletion is intended. MongoDB creates its application user only when the data volume is initialized, so changing MongoDB credentials in `.env` later also requires rotating the user inside MongoDB.
 
 The production stack uses Telegram webhooks through the Cloudflare Tunnel. Local development can use the polling configuration.
