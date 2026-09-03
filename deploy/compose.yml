@@ -20,6 +20,9 @@ services:
     volumes:
       - mongodb-data:/data/db
       - ./mongo-init.js:/docker-entrypoint-initdb.d/10-create-app-user.js:ro
+    ports:
+      # Loopback-only: remote access must go through an authenticated SSH tunnel.
+      - "127.0.0.1:27018:27017"
     networks:
       - mongodb-network
     mem_limit: 768m

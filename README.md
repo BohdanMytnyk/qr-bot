@@ -81,7 +81,7 @@ From the `qr-bot` directory:
 mvn deploy -Pdocker-deploy
 ```
 
-The profile skips Maven repository publication and performs the remote deployment instead. By default it connects with `ssh macserver` and deploys into `/home/serveradmin/apps/qr-bot-prod`. No host ports are published. MongoDB is reachable only from the bot over an internal Docker network.
+The profile skips Maven repository publication and performs the remote deployment instead. By default it connects with `ssh macserver` and deploys into `/home/serveradmin/apps/qr-bot-prod`. No ports are published to the LAN. MongoDB is available to the bot over an internal Docker network and on the server's loopback interface solely for SSH forwarding.
 
 All long-lived Docker objects use explicit names:
 
@@ -91,9 +91,31 @@ All long-lived Docker objects use explicit names:
 - Private database network: `qr-bot-prod-mongodb-network`
 - Application outbound network: `qr-bot-prod-outbound-network`
 
-Routine Maven deployments run MongoDB with `--no-recreate`, build a new application image, and replace only `qr-bot-prod-app`. The explicitly named MongoDB volume is reattached even if its container must be started again, so application redeployment preserves the same database and data. After a successful deployment, only dangling images labeled for the `qr-bot-prod` application service are pruned.
+Routine Maven deployments leave MongoDB untouched unless its Compose configuration changes, build a new application image, and replace `qr-bot-prod-app`. The explicitly named MongoDB volume is reattached even if its container must be recreated, so application redeployment preserves the same database and data. After a successful deployment, only dangling images labeled for the `qr-bot-prod` application service are pruned.
 
-The deployment also installs `~/bin/mongosh`, a zero-overhead wrapper that opens the shell inside `qr-bot-prod-mongodb` with the restricted application credentials. It does not publish MongoDB to the host or LAN.
+The deployment also installs `~/bin/mongosh`, a zero-overhead wrapper that opens the shell inside `qr-bot-prod-mongodb` with the restricted application credentials. MongoDB is never published to a LAN-facing interface.
+
+### Access MongoDB from another machine
+
+MongoDB is bound to `127.0.0.1:27018` on the server, so it cannot be reached
+directly from the LAN. Start an SSH tunnel from Windows and leave this command
+running:
+
+```powershell
+ssh -N -L 27018:127.0.0.1:27018 macserver
+```
+
+Connect MongoDB Compass or a local `mongosh` to `127.0.0.1:27018`. Use the
+restricted application username and password from `deploy/.env`, database
+`qr_bot`, and authentication database `qr_bot`. For example:
+
+```powershell
+mongosh --host 127.0.0.1 --port 27018 --username qr_app --authenticationDatabase qr_bot qr_bot
+```
+
+Enter the password interactively instead of placing it in the command or shell
+history. Closing the SSH command immediately removes access from the Windows
+machine. Do not change the Compose binding from `127.0.0.1` to `0.0.0.0`.
 
 Useful operations:
 

@@ -89,9 +89,9 @@ try {
         if ($LASTEXITCODE -ne 0) { throw "Failed to upload $name" }
     }
 
-    # --no-recreate keeps the database container and its explicit named volume
-    # untouched during routine application deployments. It creates the database
-    # on the first deployment and starts it again if it was stopped.
+    # Compose leaves MongoDB untouched when its configuration has not changed.
+    # If configuration does change, it recreates only the container and reattaches
+    # the same explicitly named data volume.
     $remoteCommand = @"
 set -eu
 chmod 600 '$RemoteDirectory/.env'
@@ -100,7 +100,7 @@ chmod 700 '$RemoteDirectory/configure-telegram-webhook.sh'
 mkdir -p /home/serveradmin/bin
 install -m 700 '$RemoteDirectory/mongosh' /home/serveradmin/bin/mongosh
 cd '$RemoteDirectory'
-docker compose --project-name qr-bot-prod --env-file .env up --detach --no-recreate --wait --wait-timeout 120 mongodb
+docker compose --project-name qr-bot-prod --env-file .env up --detach --wait --wait-timeout 120 mongodb
 docker compose --project-name qr-bot-prod --env-file .env build app
 docker compose --project-name qr-bot-prod --env-file .env up --detach --no-deps --force-recreate --remove-orphans --wait --wait-timeout 120 app
 '$RemoteDirectory/configure-telegram-webhook.sh' '$RemoteDirectory' 'https://qr.twob.cc/telegram/webhook'
