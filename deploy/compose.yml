@@ -25,6 +25,7 @@ services:
       - "127.0.0.1:27018:27017"
     networks:
       - mongodb-network
+      - mongodb-loopback-network
     mem_limit: 768m
     pids_limit: 200
     cap_drop:
@@ -111,5 +112,10 @@ networks:
   mongodb-network:
     name: qr-bot-prod-mongodb-network
     internal: true
+  mongodb-loopback-network:
+    name: qr-bot-prod-mongodb-loopback-network
+    driver: bridge
+    driver_opts:
+      com.docker.network.bridge.enable_ip_masquerade: "false"
   outbound-network:
     name: qr-bot-prod-outbound-network
