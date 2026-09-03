@@ -26,6 +26,7 @@ import ua.mytnyk.qrbot.domain.QrListSort;
 import ua.mytnyk.qrbot.domain.QrStatus;
 import ua.mytnyk.qrbot.domain.QrType;
 import ua.mytnyk.qrbot.repository.BotUserRepository;
+import ua.mytnyk.qrbot.repository.CustomerFeedbackRepository;
 import ua.mytnyk.qrbot.repository.QrAccessRepository;
 import ua.mytnyk.qrbot.repository.QrCodeRepository;
 import ua.mytnyk.qrbot.telegram.handler.menu.MainMenuCallbackHandler;
@@ -56,6 +57,7 @@ class QrWorkflowIT {
     @Autowired BotUserRepository users;
     @Autowired QrCodeRepository qrs;
     @Autowired QrAccessRepository accesses;
+    @Autowired CustomerFeedbackRepository feedback;
     @Autowired MongoTemplate mongo;
     @Autowired RecordingTelegramClient telegram;
 
@@ -95,6 +97,41 @@ class QrWorkflowIT {
         assertThat(telegram.edited()).singleElement().satisfies(value -> assertThat(value).contains("88:9"));
         workflow.replaceNavigation(actor, 88, 10, false, view);
         assertThat(telegram.inline()).hasSize(3);
+    }
+
+    @Test
+    void feedbackFlowPersistsTrimmedTextAndReturnsToMainMenu() {
+        var actor = actor(77, "alice");
+        var view = workflow.beginFeedback(actor);
+        assertThat(view.text()).contains("скаргу або пропозицію");
+        assertThat(users.findById(77L).orElseThrow().state()).isEqualTo(BotUser.State.WAITING_FOR_FEEDBACK);
+        assertThat(workflow.isWaitingForFeedback(77L)).isTrue();
+
+        workflow.acceptFeedback(message(actor, 88, 10, "  Додайте темну тему  "));
+
+        assertThat(feedback.findAll()).singleElement().satisfies(saved -> {
+            assertThat(saved.id()).isNotBlank();
+            assertThat(saved.customerId()).isEqualTo(77L);
+            assertThat(saved.username()).isEqualTo("alice");
+            assertThat(saved.text()).isEqualTo("Додайте темну тему");
+            assertThat(saved.createdAt()).isNotNull();
+        });
+        assertThat(users.findById(77L).orElseThrow().state()).isEqualTo(BotUser.State.IDLE);
+        assertThat(telegram.inline()).singleElement().satisfies(sent -> assertThat(sent).contains("Дякуємо"));
+    }
+
+    @Test
+    void feedbackSubmissionRejectsBlankTextAndWrongState() {
+        var actor = actor(77, "alice");
+        users.save(botUser(actor, BotUser.State.WAITING_FOR_FEEDBACK, null, null, null, null, null, null));
+        assertThatThrownBy(() -> workflow.acceptFeedback(message(actor, 88, 10, "   ")))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("blank");
+        assertThat(feedback.findAll()).isEmpty();
+
+        users.save(botUser(actor, BotUser.State.IDLE, null, null, null, null, null, null));
+        assertThatThrownBy(() -> workflow.acceptFeedback(message(actor, 88, 11, "Suggestion")))
+                .isInstanceOf(IllegalStateException.class).hasMessageContaining("Unexpected user state");
+        assertThat(feedback.findAll()).isEmpty();
     }
 
     @Test

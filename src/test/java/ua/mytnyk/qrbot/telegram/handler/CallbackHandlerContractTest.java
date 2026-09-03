@@ -8,6 +8,7 @@ import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 import ua.mytnyk.qrbot.service.QrWorkflow;
 import ua.mytnyk.qrbot.telegram.handler.menu.MainMenuCallbackHandler;
+import ua.mytnyk.qrbot.telegram.handler.feedback.BeginFeedbackCallbackHandler;
 import ua.mytnyk.qrbot.telegram.handler.qr.create.ChoosePasswordCaseCallbackHandler;
 import ua.mytnyk.qrbot.telegram.handler.qr.create.CreateQrCallbackHandler;
 import ua.mytnyk.qrbot.telegram.handler.qr.create.FinishContentQrCallbackHandler;
@@ -73,6 +74,7 @@ class CallbackHandlerContractTest {
     static Stream<Arguments> textBranchHandlers() {
         return Stream.of(
                 Arguments.of("menu:create", factory(CreateQrCallbackHandler::new)),
+                Arguments.of("menu:feedback", factory(BeginFeedbackCallbackHandler::new)),
                 Arguments.of("create:type:CONTENT", factory(SelectQrTypeCallbackHandler::new)),
                 Arguments.of("menu:list", factory(ListQrsCallbackHandler::new)),
                 Arguments.of("list:page:1", factory(FilterQrsCallbackHandler::new)),
@@ -85,6 +87,7 @@ class CallbackHandlerContractTest {
         return Stream.of(
                 Arguments.of("main menu", factory(MainMenuCallbackHandler::new), "menu:home"),
                 Arguments.of("create", factory(CreateQrCallbackHandler::new), "menu:create"),
+                Arguments.of("feedback", factory(BeginFeedbackCallbackHandler::new), "menu:feedback"),
                 Arguments.of("select type", factory(SelectQrTypeCallbackHandler::new), "create:type:CONTENT"),
                 Arguments.of("finish content", factory(FinishContentQrCallbackHandler::new), "create:content:done"),
                 Arguments.of("skip password", factory(SkipCreationPasswordCallbackHandler::new), "create:protection:skip"),

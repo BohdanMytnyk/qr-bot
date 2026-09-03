@@ -22,6 +22,7 @@ import org.springframework.stereotype.Service;
 import ua.mytnyk.qrbot.config.QrBotProperties;
 import ua.mytnyk.qrbot.domain.AnalyticsAction;
 import ua.mytnyk.qrbot.domain.BotUser;
+import ua.mytnyk.qrbot.domain.CustomerFeedback;
 import ua.mytnyk.qrbot.domain.QrAccess;
 import ua.mytnyk.qrbot.domain.QrCode;
 import ua.mytnyk.qrbot.domain.QrContentItem;
@@ -31,6 +32,7 @@ import ua.mytnyk.qrbot.domain.QrStatus;
 import ua.mytnyk.qrbot.domain.QrType;
 import ua.mytnyk.qrbot.domain.PendingPasswordOptions;
 import ua.mytnyk.qrbot.repository.BotUserRepository;
+import ua.mytnyk.qrbot.repository.CustomerFeedbackRepository;
 import ua.mytnyk.qrbot.repository.QrAccessRepository;
 import ua.mytnyk.qrbot.repository.QrCodeRepository;
 import ua.mytnyk.qrbot.telegram.QrContentTelegramService;
@@ -45,6 +47,7 @@ public class QrWorkflow {
     public static final String MENU_HOME = "menu:home";
     public static final String MENU_CREATE = "menu:create";
     public static final String MENU_LIST = "menu:list";
+    public static final String MENU_FEEDBACK = "menu:feedback";
     public static final String TYPE_PREFIX = "create:type:";
     public static final String VIEW_PREFIX = "qr:view:";
     public static final String SHOW_QR_PREFIX = "qr:image:";
@@ -81,13 +84,15 @@ public class QrWorkflow {
     private final MongoTemplate mongo;
     private final QrAnalytics analytics;
     private final QrLinkService links;
+    private final CustomerFeedbackRepository feedback;
     private final Clock clock = Clock.systemUTC();
 
     public QrWorkflow(BotUserRepository users, QrCodeRepository qrCodes, QrAccessRepository accesses,
                       PasswordHasher passwords, QrImageGenerator imageGenerator, TelegramClient telegram,
                       QrContentTelegramService contentTelegram,
                       QrBotProperties properties, List<ContentDeliveryStrategy> deliveryStrategies,
-                      MongoTemplate mongo, QrAnalytics analytics, QrLinkService links) {
+                      MongoTemplate mongo, QrAnalytics analytics, QrLinkService links,
+                      CustomerFeedbackRepository feedback) {
         this.users = users;
         this.qrCodes = qrCodes;
         this.accesses = accesses;
@@ -100,6 +105,7 @@ public class QrWorkflow {
         this.mongo = mongo;
         this.analytics = analytics;
         this.links = links;
+        this.feedback = feedback;
     }
 
     public void showMainMenu(Message message) {
@@ -146,6 +152,33 @@ public class QrWorkflow {
                 row(button("1️⃣ Одноразовий QR-код", TYPE_PREFIX + QrType.SINGLE_USE)),
                 row(button("🎟️ Купон", TYPE_PREFIX + QrType.COUPON)),
                 row(button("🏠 Головне меню", MENU_HOME)))));
+    }
+
+    public BotView beginFeedback(User actor) {
+        saveUser(actor, BotUser.State.WAITING_FOR_FEEDBACK, null, null, null);
+        return new BotView("💬 Напишіть вашу скаргу або пропозицію одним текстовим повідомленням.",
+                keyboard(List.of(row(button("❌ Скасувати", MENU_HOME)))));
+    }
+
+    public boolean isWaitingForFeedback(long userId) {
+        return hasState(userId, BotUser.State.WAITING_FOR_FEEDBACK);
+    }
+
+    public void acceptFeedback(Message message) {
+        requiredUser(message.getFrom().getId(), BotUser.State.WAITING_FOR_FEEDBACK);
+        var text = message.getText() == null ? "" : message.getText().strip();
+        if (text.isEmpty()) {
+            throw new IllegalArgumentException("Feedback must not be blank");
+        }
+        feedback.insert(new CustomerFeedback(UUID.randomUUID().toString(), message.getFrom().getId(),
+                message.getFrom().getUsername(), text, clock.instant()));
+        deleteNavigation(message.getFrom().getId(), message.getChat().getId());
+        resetUser(message.getFrom());
+        var view = mainMenuView();
+        var navigationMessageId = telegram.sendInline(message.getChat().getId(),
+                "✅ Дякуємо! Ваше повідомлення збережено.\n\n" + view.text(), view.keyboard());
+        setNavigationMessage(message.getFrom(), navigationMessageId);
+        setDisplayedMessages(message.getFrom(), List.of(navigationMessageId));
     }
 
     public BotView selectType(User actor, long chatId, QrType type) {
@@ -714,7 +747,8 @@ public class QrWorkflow {
     private BotView mainMenuView() {
         return new BotView("👋 Оберіть дію.", keyboard(List.of(
                 row(button("➕ Створити QR-код", MENU_CREATE)),
-                row(button("📚 Мої QR-коди", MENU_LIST)))));
+                row(button("📚 Мої QR-коди", MENU_LIST)),
+                row(button("💬 Скарги та пропозиції", MENU_FEEDBACK)))));
     }
 
     private BotView contentReadyView(int count, String previewText) {
