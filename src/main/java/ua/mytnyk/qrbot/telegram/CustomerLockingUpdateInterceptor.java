@@ -13,7 +13,7 @@ import ua.mytnyk.telegram.common.handler.UpdateInterceptor;
 @Order(Ordered.HIGHEST_PRECEDENCE + 100)
 public class CustomerLockingUpdateInterceptor implements UpdateInterceptor {
     private static final Logger log = LoggerFactory.getLogger(CustomerLockingUpdateInterceptor.class);
-    private static final int LOCK_COUNT = 256;
+    private static final int LOCK_COUNT = 1024;
     private final Object[] customerLocks = new Object[LOCK_COUNT];
 
     public CustomerLockingUpdateInterceptor() {
