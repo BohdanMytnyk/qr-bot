@@ -204,6 +204,6 @@ The production stack uses Telegram webhooks through the Cloudflare Tunnel. Local
 - `qr_codes` stores token, type, owner, storage-channel message reference, creation time, and aggregate open count.
 - `qr_accesses` stores one row per valid open with QR ID, Telegram user ID, username, and timestamp.
 - `bot_users` stores each Telegram user's current workflow state, selected QR type, pending channel message, and pending protected QR. Separate creation/opening session collections are not used.
-- `analytics_events` is an append-only customer-action stream for creation, scan, password, delivery, deletion, redemption, and menu funnels. Passwords are never included.
+- `analytics_events` is an append-only customer-action stream for creation, scan, password, delivery, deletion, redemption, and menu funnels. Passwords are never included. A MongoDB TTL index automatically removes events after 31 days.
 
 QR identifiers use random UUIDv4 values. Existing 43-character tokens are retained only so already-issued QR images continue working.
