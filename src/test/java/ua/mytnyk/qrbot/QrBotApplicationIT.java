@@ -12,6 +12,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.data.mongodb.core.MongoTemplate;
+import org.springframework.data.mongodb.core.query.Query;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -63,7 +64,7 @@ class QrBotApplicationIT {
     @BeforeEach
     void resetState() throws InterruptedException {
         users.deleteAll();
-        mongo.dropCollection("analytics_events");
+        mongo.remove(new Query(), "analytics_events");
         while (TELEGRAM.takeRequest(25, TimeUnit.MILLISECONDS) != null) {
             // Discard requests from the preceding test.
         }
@@ -79,7 +80,9 @@ class QrBotApplicationIT {
         var response = post(startUpdate(100), null);
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
         assertThat(users.count()).isZero();
-        assertThat(mongo.collectionExists("analytics_events")).isFalse();
+        assertThat(mongo.collectionExists("analytics_events")).isTrue();
+        assertThat(mongo.getCollection("analytics_events").countDocuments()).isZero();
+        assertThat(mongo.getCollectionNames()).doesNotContain("analyticsEvent");
         assertThat(TELEGRAM.takeRequest(100, TimeUnit.MILLISECONDS)).isNull();
     }
 
@@ -101,6 +104,14 @@ class QrBotApplicationIT {
                     assertThat(event.action()).isEqualTo("MAIN_MENU_VIEWED");
                     assertThat(event.actorId()).isEqualTo(77L);
                     assertThat(event.contextId()).isEqualTo(88L);
+                });
+        assertThat(mongo.getCollectionNames()).contains("analytics_events").doesNotContain("analyticsEvent");
+        assertThat(mongo.indexOps("analytics_events").getIndexInfo())
+                .anySatisfy(index -> assertThat(index.getName()).isEqualTo("actorId"))
+                .anySatisfy(index -> assertThat(index.getName()).isEqualTo("subjectId"))
+                .anySatisfy(index -> {
+                    assertThat(index.getName()).isEqualTo("analytics_occurred_at_ttl");
+                    assertThat(index.getExpireAfter()).contains(java.time.Duration.ofDays(31));
                 });
         RecordedRequest telegramRequest = TELEGRAM.takeRequest(2, TimeUnit.SECONDS);
         assertThat(telegramRequest).isNotNull();
