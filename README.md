@@ -5,7 +5,7 @@ A Spring Boot Telegram bot that creates QR deep links and stores finalized conte
 ## Current flows
 
 - `/start` displays an inline main menu. It is the only command published in Telegram's command menu, as `🏠 Menu`. Callback buttons drive creation, type selection, listing, details, navigation, and deletion. Only content and password/code entry use free-form messages.
-- `/start` fully resets pending workflow state and list preferences before showing the menu. Password prompts include a cancel button, and slash-prefixed input is reserved for commands rather than accepted as a password.
+- `/start` removes the previously tracked inline navigation, resets pending workflow state, and shows a new main menu. Password prompts include a cancel button, and slash-prefixed input is reserved for commands rather than accepted as a password.
 - `Create QR` offers `📄 Content`, `1️⃣ Single-use QR`, and `🎟️ Coupon`. Content and single-use QRs may use an optional password/code; coupons are owner-only and always ask their owner for explicit redemption confirmation.
 - QR lists show only `ACTIVE` records, so `DELETED` and `REDEEMED` statuses and status controls are hidden. Controls appear above numbered items and provide independent type checkboxes plus `↓ Newest`/`↑ Oldest` creation-date ordering. All three type checkboxes share one row. Preferences are stored on the bot user.
 - Expanding an owned item deletes the old navigation and copies the stored content with type, open count, creation date, and navigation controls attached directly to that copied message. A `Show QR and link` action displays its generated QR and deep link, followed by navigation. Owner previews bypass protected-password and one-time redemption rules and do not increment open analytics or redeem the QR.
@@ -16,7 +16,7 @@ A Spring Boot Telegram bot that creates QR deep links and stores finalized conte
 - A coupon is visible only to its creating Telegram account. An owner scan asks for explicit redemption confirmation before delivery and changing the status to `REDEEMED`.
 - A single-use QR is atomically redeemed by the first scanner when unprotected, or by the first scanner with a correct answer when password-protected. Later scans explicitly report that it was already redeemed.
 - Scanning the QR opens `https://t.me/<bot>?start=<token>`. Public content is delivered immediately. Protected content asks for the password/code, deletes that message before comparison, and delivers only on a successful match.
-- Successful delivery records the user and UTC timestamp, increments the QR open count, and sends a fresh main-menu navigation message after the delivered content. Delivery uses a strategy interface so more QR types can be added without changing the dispatcher.
+- Successful delivery records the user and UTC timestamp and increments the QR open count without appending a menu after the delivered content. The user can reopen the menu with `/start`. Delivery uses a strategy interface so more QR types can be added without changing the dispatcher.
 - New deep links use the QR's UUID directly. Previously issued token links remain readable as legacy aliases.
 
 ## Prerequisites
@@ -34,7 +34,7 @@ Copy `.env.example` to `.env` and set:
 - `TELEGRAM_BOT_TOKEN`: token from BotFather
 - `TELEGRAM_BOT_USERNAME`: bot username without `@`
 - `TELEGRAM_CONTENT_CHANNEL_ID`: numeric private channel ID (typically starts with `-100`)
-- `TELEGRAM_RESTART_NOTIFICATION_CHAT_ID`: chat that receives `restarted` after successful startup
+- Production restart notifications are disabled. The local/pre launcher sends them to `LOCAL_TELEGRAM_OWNER_ID`.
 - `MONGODB_URI`: MongoDB connection URI
 - `QR_BOT_LOG_LEVEL`: application log level, default `INFO`
 

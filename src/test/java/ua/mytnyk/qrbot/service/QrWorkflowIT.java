@@ -186,6 +186,8 @@ class QrWorkflowIT {
         assertThat(users.findById(77L).orElseThrow().state()).isEqualTo(BotUser.State.IDLE);
         assertThat(telegram.photos()).singleElement().satisfies(value ->
                 assertThat(value).contains("qr-").contains(".png").contains("/" + created.token()));
+        assertThat(telegram.inline()).singleElement().satisfies(value ->
+                assertThat(value).contains("Ваш QR готовий ⬆️"));
 
         var redirect = new QrRedirectController(qrs, links, mongo);
         assertThat(redirect.redirect(created.token()).getHeaders().getLocation())
@@ -425,8 +427,10 @@ class QrWorkflowIT {
         var content = qr("30000000-0000-0000-0000-000000000004", QrType.CONTENT,
                 QrStatus.ACTIVE, 99, null, null);
         qrs.insert(content);
+        var navigationCountBeforeDelivery = telegram.inline().size();
         assertThat(workflow.open(content.id(), message(actor, 88, 5, "open")))
                 .isEqualTo(QrWorkflow.OpenResult.DELIVERED);
+        assertThat(telegram.inline()).hasSize(navigationCountBeforeDelivery);
         assertThat(accesses.findAll()).singleElement().satisfies(access -> {
             assertThat(access.qrId()).isEqualTo(content.id());
             assertThat(access.userId()).isEqualTo(77L);
@@ -504,8 +508,8 @@ class QrWorkflowIT {
     @Test
     void coversStartupNotifierAndNullablePreferenceNormalizationInIsolatedContext() {
         var telegramClient = org.mockito.Mockito.mock(TelegramClient.class);
-        new ua.mytnyk.qrbot.telegram.StartupNotifier(telegramClient, 0).notifyRestart();
-        new ua.mytnyk.qrbot.telegram.StartupNotifier(telegramClient, 123).notifyRestart();
+        new ua.mytnyk.qrbot.telegram.StartupNotifier(telegramClient, 0, true).notifyRestart();
+        new ua.mytnyk.qrbot.telegram.StartupNotifier(telegramClient, 123, true).notifyRestart();
         assertThat(new QrListPreferences(EnumSet.allOf(QrType.class),
                 EnumSet.allOf(QrStatus.class), QrListSort.NEWEST, null).page()).isZero();
         org.assertj.core.api.Assertions.assertThatThrownBy(() -> new QrImageGenerator().generatePng(null))

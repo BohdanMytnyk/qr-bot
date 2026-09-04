@@ -81,6 +81,7 @@ public class QrWorkflow {
     private static final int MAX_TEXT_LENGTH = 4096;
     private static final int MAX_MEDIA_CAPTION_LENGTH = 1024;
     private static final int MAX_DONATION_STARS = 10_000;
+    private static final String QR_READY_TEXT = "✨ Ваш QR готовий ⬆️\n\n";
     private static final DateTimeFormatter DISPLAY_DATE = DateTimeFormatter
             .ofPattern("dd MMM yyyy, HH:mm", Locale.forLanguageTag("uk-UA"))
             .withZone(ZoneId.of("Europe/Kyiv"));
@@ -365,7 +366,7 @@ public class QrWorkflow {
         analytics.track(AnalyticsAction.QR_CREATED, message.getFrom().getId(), message.getChat().getId(), qrCode);
         var view = mainMenuView();
         var navigationMessageId = telegram.sendInline(message.getChat().getId(),
-                "✨ Класичний QR-код створено.\n\n" + view.text(), view.keyboard());
+                QR_READY_TEXT + view.text(), view.keyboard());
         setNavigationMessage(message.getFrom(), navigationMessageId);
     }
 
@@ -740,7 +741,6 @@ public class QrWorkflow {
                         "ℹ️ Цей QR-код уже погашено.\n\n");
                 return OpenResult.NOT_FOUND;
             }
-            sendMainNavigation(message.getFrom(), message.getChat().getId(), "");
             return OpenResult.DELIVERED;
         }
         if (qrCode.type() == QrType.COUPON) {
@@ -809,7 +809,6 @@ public class QrWorkflow {
                 sendMainNavigation(message.getFrom(), message.getChat().getId(), "🔍 QR-код не знайдено.\n\n");
                 return false;
             }
-            sendMainNavigation(message.getFrom(), message.getChat().getId(), "");
             return true;
         }
         completeDelivery(qrCode, message.getFrom(), message.getChat().getId());
@@ -839,7 +838,6 @@ public class QrWorkflow {
             saveUser(actor, BotUser.State.IDLE, null, null, null);
             setDisplayedMessages(actor, List.of());
             telegram.sendText(chatId, "✅ Успішно погашено");
-            sendMainNavigation(actor, chatId, "");
         }
         return redeemed;
     }
@@ -865,7 +863,7 @@ public class QrWorkflow {
         analytics.track(AnalyticsAction.QR_CREATED, actor.getId(), chatId, qrCode);
         var view = mainMenuView();
         var navigationMessageId = telegram.sendInline(chatId,
-                "✨ Можна створити ще один QR-код.\n\n" + view.text(), view.keyboard());
+                QR_READY_TEXT + view.text(), view.keyboard());
         setNavigationMessage(actor, navigationMessageId);
     }
 
@@ -915,7 +913,6 @@ public class QrWorkflow {
     private void completeDelivery(QrCode qrCode, User actor, long chatId) {
         deliverAndRecord(qrCode, actor, chatId);
         saveUser(actor, BotUser.State.IDLE, null, null, null);
-        sendMainNavigation(actor, chatId, "");
     }
 
     private void deliverAndRecord(QrCode qrCode, User actor, long chatId) {
@@ -934,7 +931,7 @@ public class QrWorkflow {
     }
 
     private BotView mainMenuView() {
-        return new BotView("👋 Створюйте короткі QR-посилання, Telegram-контент, одноразові подарунки та купони — зі статистикою відкриттів і захистом паролем.\n\nОберіть дію.", keyboard(List.of(
+        return new BotView("👋 Безкоштовно створюйте короткі QR-посилання, Telegram-контент, одноразові подарунки та купони — зі статистикою відкриттів і захистом паролем.\n\nОберіть дію.", keyboard(List.of(
                 row(button("➕ Створити QR-код", MENU_CREATE)),
                 row(button("📚 Мої QR-коди", MENU_LIST)),
                 row(button("💬 Скарги та пропозиції", MENU_FEEDBACK)),

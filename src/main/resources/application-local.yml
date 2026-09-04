@@ -8,6 +8,8 @@ qr:
   links:
     include-telegram-deep-link: true
 telegram:
+  startup-notifier:
+    restart-notification-enabled: true
   polling:
     enabled: true
   webhook:

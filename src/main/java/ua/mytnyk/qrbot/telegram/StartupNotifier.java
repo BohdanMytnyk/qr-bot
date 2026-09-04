@@ -18,20 +18,28 @@ public class StartupNotifier {
     private static final Logger log = LoggerFactory.getLogger(StartupNotifier.class);
     private final TelegramClient telegram;
     private final long notificationChatId;
+    private final boolean restartNotificationEnabled;
 
     public StartupNotifier(TelegramClient telegram,
-                           @Value("${telegram.restart-notification-chat-id:0}") long notificationChatId) {
+                           @Value("${telegram.restart-notification-chat-id:0}") long notificationChatId,
+                           @Value("${telegram.startup-notifier.restart-notification-enabled:true}")
+                           boolean restartNotificationEnabled) {
         this.telegram = telegram;
         this.notificationChatId = notificationChatId;
+        this.restartNotificationEnabled = restartNotificationEnabled;
     }
 
     @EventListener(ApplicationReadyEvent.class)
     public void notifyRestart() {
         try {
-            telegram.publishCommands(List.of(new BotCommand("start", "🏠 Меню")));
+            telegram.publishCommands(List.of(new BotCommand("start", "🏠 Головне меню")));
             log.info("Telegram bot commands published");
         } catch (RuntimeException exception) {
             log.error("Could not publish Telegram bot commands", exception);
+        }
+        if (!restartNotificationEnabled) {
+            log.info("Restart notification disabled");
+            return;
         }
         if (notificationChatId == 0) {
             log.warn("Restart notification skipped: TELEGRAM_RESTART_NOTIFICATION_CHAT_ID is not configured");

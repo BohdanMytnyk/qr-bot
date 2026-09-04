@@ -1,4 +1,6 @@
 telegram:
+  startup-notifier:
+    restart-notification-enabled: false
   polling:
     enabled: false
   webhook:

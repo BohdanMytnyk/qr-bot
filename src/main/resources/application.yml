@@ -15,6 +15,7 @@ qr:
 telegram:
   startup-notifier:
     enabled: ${TELEGRAM_STARTUP_NOTIFIER_ENABLED:true}
+    restart-notification-enabled: ${TELEGRAM_RESTART_NOTIFICATION_ENABLED:true}
   token: ${TELEGRAM_BOT_TOKEN}
   bot-username: ${TELEGRAM_BOT_USERNAME}
   content-channel-id: ${TELEGRAM_CONTENT_CHANNEL_ID}
