@@ -11,8 +11,7 @@ import org.mockito.ArgumentCaptor;
 import static org.mockito.ArgumentMatchers.eq;
 
 class StartupNotifierTest {
-    private static final List<BotCommand> COMMANDS = List.of(new BotCommand("start", "🏠 Меню"),
-            new BotCommand("paysupport", "💳 Підтримка з платежів"));
+    private static final List<BotCommand> COMMANDS = List.of(new BotCommand("start", "🏠 Меню"));
 
     @Test
     void publishesCommandsAndSkipsNotificationWhenChatIsUnset() {

@@ -28,8 +28,7 @@ public class StartupNotifier {
     @EventListener(ApplicationReadyEvent.class)
     public void notifyRestart() {
         try {
-            telegram.publishCommands(List.of(new BotCommand("start", "🏠 Меню"),
-                    new BotCommand("paysupport", "💳 Підтримка з платежів")));
+            telegram.publishCommands(List.of(new BotCommand("start", "🏠 Меню")));
             log.info("Telegram bot commands published");
         } catch (RuntimeException exception) {
             log.error("Could not publish Telegram bot commands", exception);

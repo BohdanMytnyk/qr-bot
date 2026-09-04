@@ -18,6 +18,7 @@ import org.testcontainers.containers.MongoDBContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import ua.mytnyk.qrbot.domain.BotUser;
+import ua.mytnyk.qrbot.domain.CustomerFeedback;
 import ua.mytnyk.qrbot.domain.PendingPasswordOptions;
 import ua.mytnyk.qrbot.domain.QrCode;
 import ua.mytnyk.qrbot.domain.QrContentItem;
@@ -123,10 +124,30 @@ class QrWorkflowIT {
             assertThat(saved.customerId()).isEqualTo(77L);
             assertThat(saved.username()).isEqualTo("alice");
             assertThat(saved.text()).isEqualTo("Додайте темну тему");
+            assertThat(saved.type()).isEqualTo(CustomerFeedback.Type.GENERAL);
             assertThat(saved.createdAt()).isNotNull();
         });
         assertThat(users.findById(77L).orElseThrow().state()).isEqualTo(BotUser.State.IDLE);
         assertThat(telegram.inline()).singleElement().satisfies(sent -> assertThat(sent).contains("Дякуємо"));
+    }
+
+    @Test
+    void paymentSupportFlowUsesDedicatedStateAndFeedbackType() {
+        var actor = actor(77, "alice");
+        workflow.showPaymentSupport(message(actor, 88, 10, "/paysupport"));
+        assertThat(users.findById(77L).orElseThrow().state())
+                .isEqualTo(BotUser.State.WAITING_FOR_PAYMENT_SUPPORT);
+        assertThat(workflow.isWaitingForPaymentSupport(77L)).isTrue();
+
+        workflow.acceptPaymentSupport(message(actor, 88, 11, "  50 Stars, прошу повернення  "));
+
+        assertThat(feedback.findAll()).singleElement().satisfies(saved -> {
+            assertThat(saved.text()).isEqualTo("50 Stars, прошу повернення");
+            assertThat(saved.type()).isEqualTo(CustomerFeedback.Type.PAYMENT_SUPPORT);
+        });
+        assertThat(users.findById(77L).orElseThrow().state()).isEqualTo(BotUser.State.IDLE);
+        assertThat(telegram.inline()).hasSize(2).last().satisfies(sent ->
+                assertThat(sent).contains("Запит щодо платежу отримано"));
     }
 
     @Test

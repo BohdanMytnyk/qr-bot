@@ -181,9 +181,11 @@ public class QrWorkflow {
 
     public void showPaymentSupport(Message message) {
         deleteNavigation(message.getFrom().getId(), message.getChat().getId());
-        saveUser(message.getFrom(), BotUser.State.WAITING_FOR_FEEDBACK, null, null, null);
+        saveUser(message.getFrom(), BotUser.State.WAITING_FOR_PAYMENT_SUPPORT, null, null, null);
         var navigationMessageId = telegram.sendInline(message.getChat().getId(),
-                "💳 Опишіть проблему з платежем одним текстовим повідомленням.",
+                "💳 Опишіть проблему з платежем одним текстовим повідомленням.\n\n"
+                        + "Вкажіть приблизну дату платежу, кількість Stars і чи бажаєте ви повернення. "
+                        + "Не надсилайте паролі, коди входу або банківські дані.",
                 keyboard(List.of(row(button("❌ Скасувати", MENU_HOME)))));
         setNavigationMessage(message.getFrom(), navigationMessageId);
         setDisplayedMessages(message.getFrom(), List.of(navigationMessageId));
@@ -193,26 +195,53 @@ public class QrWorkflow {
         return hasState(userId, BotUser.State.WAITING_FOR_FEEDBACK);
     }
 
+    public boolean isWaitingForPaymentSupport(long userId) {
+        return hasState(userId, BotUser.State.WAITING_FOR_PAYMENT_SUPPORT);
+    }
+
     public void acceptFeedback(Message message) {
         requiredUser(message.getFrom().getId(), BotUser.State.WAITING_FOR_FEEDBACK);
         var text = message.getText() == null ? "" : message.getText().strip();
         if (text.isEmpty()) {
             throw new IllegalArgumentException("Feedback must not be blank");
         }
+        saveFeedback(message, text, CustomerFeedback.Type.GENERAL);
+        finishFeedback(message, "✅ Дякуємо! Ваше повідомлення збережено.\n\n");
+    }
+
+    public void acceptPaymentSupport(Message message) {
+        requiredUser(message.getFrom().getId(), BotUser.State.WAITING_FOR_PAYMENT_SUPPORT);
+        var text = message.getText() == null ? "" : message.getText().strip();
+        if (text.isEmpty()) {
+            throw new IllegalArgumentException("Payment support request must not be blank");
+        }
+        saveFeedback(message, text, CustomerFeedback.Type.PAYMENT_SUPPORT);
+        finishFeedback(message, "✅ Запит щодо платежу отримано. Ми перевіримо платіж і повідомимо про рішення.\n\n");
+    }
+
+    private void saveFeedback(Message message, String text, CustomerFeedback.Type type) {
         feedback.insert(new CustomerFeedback(UUID.randomUUID().toString(), message.getFrom().getId(),
-                message.getFrom().getUsername(), text, clock.instant()));
+                message.getFrom().getUsername(), text, type, clock.instant()));
+    }
+
+    private void finishFeedback(Message message, String confirmation) {
         deleteNavigation(message.getFrom().getId(), message.getChat().getId());
         resetUser(message.getFrom());
         var view = mainMenuView();
         var navigationMessageId = telegram.sendInline(message.getChat().getId(),
-                "✅ Дякуємо! Ваше повідомлення збережено.\n\n" + view.text(), view.keyboard());
+                confirmation + view.text(), view.keyboard());
         setNavigationMessage(message.getFrom(), navigationMessageId);
         setDisplayedMessages(message.getFrom(), List.of(navigationMessageId));
     }
 
     public BotView donationMenu(User actor) {
         saveUser(actor, BotUser.State.IDLE, null, null, null);
-        return new BotView("⭐ Підтримати бота Telegram Stars", keyboard(List.of(
+        return new BotView("⭐ Добровільно підтримати бота Telegram Stars\n\n"
+                + "Це добровільна пожертва на розвиток і роботу бота, а не оплата товару чи послуги. "
+                + "Пожертва не надає додаткових функцій або переваг.\n\n"
+                + "Обираючи суму, ви підтверджуєте, що здійснюєте платіж добровільно. "
+                + "Якщо платіж зроблено помилково або виникла інша проблема, надішліть /paysupport — "
+                + "ми перевіримо звернення та повідомимо про рішення щодо повернення.", keyboard(List.of(
                 row(button("⭐ 1", DONATE_AMOUNT_PREFIX + "1"), button("⭐ 10", DONATE_AMOUNT_PREFIX + "10")),
                 row(button("⭐ 50", DONATE_AMOUNT_PREFIX + "50"), button("⭐ 100", DONATE_AMOUNT_PREFIX + "100")),
                 row(button("⭐ 500", DONATE_AMOUNT_PREFIX + "500"), button("Інша сума", DONATE_AMOUNT_PREFIX + "other")),
