@@ -20,11 +20,11 @@ telegram:
   content-channel-id: ${TELEGRAM_CONTENT_CHANNEL_ID}
   restart-notification-chat-id: ${TELEGRAM_RESTART_NOTIFICATION_CHAT_ID:0}
   polling:
-    enabled: false
+    enabled: ${TELEGRAM_POLLING_ENABLED:false}
   webhook:
-    enabled: true
+    enabled: ${TELEGRAM_WEBHOOK_ENABLED:false}
     path: /telegram/webhook
-    secret: ${TELEGRAM_WEBHOOK_SECRET}
+    secret: ${TELEGRAM_WEBHOOK_SECRET:}
 logging:
   file:
     name: ${QR_BOT_LOG_FILE:/var/log/qr-bot/application.json}

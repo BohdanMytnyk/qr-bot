@@ -61,6 +61,10 @@ public class QrLinkService {
         return "https://t.me/" + username + "?start=" + qrCode.id();
     }
 
+    public boolean includeTelegramDeepLink() {
+        return linkProperties.isIncludeTelegramDeepLink();
+    }
+
     private String randomToken() {
         var result = new char[TOKEN_LENGTH];
         for (int index = 0; index < result.length; index++) {

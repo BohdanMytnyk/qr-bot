@@ -1,0 +1,6 @@
+telegram:
+  polling:
+    enabled: false
+  webhook:
+    enabled: true
+    secret: ${TELEGRAM_WEBHOOK_SECRET}

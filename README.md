@@ -42,7 +42,33 @@ The bot username must match the bot represented by the token or generated links 
 
 ## Run locally
 
-First install the shared library:
+The recommended local/pre environment is a dedicated Docker Compose stack. It uses long polling, a separate
+MongoDB database and persistent volume, a separate Telegram bot/channel, and an application-level allowlist that
+silently rejects every Telegram user except the configured owner.
+
+1. Create a separate bot with BotFather and a separate private content channel. Add the local bot to that channel
+   as an administrator.
+2. Copy `deploy/.env.local.example` to `deploy/.env.local` and set the local bot token, username, channel ID, and
+   your Telegram user ID. The file is ignored by Git.
+3. If the local bot previously used a webhook, remove that webhook with BotFather/API before using polling.
+4. Start the environment:
+
+```powershell
+.\deploy\run-local.ps1
+```
+
+Stop it without affecting production or deleting local data:
+
+```powershell
+docker compose --project-name qr-bot-local --env-file .\deploy\.env.local `
+    -f .\deploy\compose.local.yml stop
+```
+
+Local containers use `restart: "no"`, so starting Docker Desktop does not start the local bot automatically.
+Generated local QR messages include both the normal `https://qr.twob.cc/...` link and a direct local-bot
+`https://t.me/...` deep link for testing. Production messages continue to show only the public link.
+
+To run directly without Docker, first install the shared library:
 
 ```powershell
 cd ..\telegram-common
@@ -51,7 +77,16 @@ cd ..\qr-bot
 mvn spring-boot:run
 ```
 
-PowerShell does not automatically import `.env`; export those values into the process environment before running Maven.
+PowerShell and Maven do not automatically import `.env.local`. To run the application with Maven while retaining
+the isolated local MongoDB container and local profile, use:
+
+```powershell
+.\deploy\run-local-maven.ps1
+```
+
+The launcher imports `deploy/.env.local` only into its process, starts `qr-bot-local-mongodb`, points Spring at
+`127.0.0.1:27019/qr_bot`, and runs `mvn spring-boot:run` with the `local` profile. Stop the foreground bot
+with `Ctrl+C`; the local MongoDB container remains available for the next run.
 
 ## Tests
 

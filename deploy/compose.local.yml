@@ -1,0 +1,47 @@
+name: qr-bot-local
+
+services:
+  mongodb:
+    container_name: qr-bot-local-mongodb
+    image: mongo:8.0
+    restart: "no"
+    ports:
+      - "127.0.0.1:27019:27017"
+    volumes:
+      - local-mongodb-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "quit(db.adminCommand('ping').ok ? 0 : 1)"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  app:
+    container_name: qr-bot-local-app
+    image: qr-bot-local-app:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: "no"
+    environment:
+      SPRING_PROFILES_ACTIVE: local
+      TELEGRAM_BOT_TOKEN: ${LOCAL_TELEGRAM_BOT_TOKEN:?Set LOCAL_TELEGRAM_BOT_TOKEN in .env.local}
+      TELEGRAM_BOT_USERNAME: ${LOCAL_TELEGRAM_BOT_USERNAME:?Set LOCAL_TELEGRAM_BOT_USERNAME in .env.local}
+      TELEGRAM_CONTENT_CHANNEL_ID: ${LOCAL_TELEGRAM_CONTENT_CHANNEL_ID:?Set LOCAL_TELEGRAM_CONTENT_CHANNEL_ID in .env.local}
+      TELEGRAM_RESTART_NOTIFICATION_CHAT_ID: ${LOCAL_TELEGRAM_OWNER_ID:?Set LOCAL_TELEGRAM_OWNER_ID in .env.local}
+      LOCAL_TELEGRAM_OWNER_ID: ${LOCAL_TELEGRAM_OWNER_ID:?Set LOCAL_TELEGRAM_OWNER_ID in .env.local}
+      QR_PUBLIC_BASE_URL: https://qr.twob.cc
+      SPRING_DATA_MONGODB_HOST: qr-bot-local-mongodb
+      SPRING_DATA_MONGODB_PORT: "27017"
+      QR_BOT_LOG_FILE: /var/log/qr-bot/application.json
+      QR_BOT_LOG_LEVEL: ${QR_BOT_LOG_LEVEL:-INFO}
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    volumes:
+      - local-application-logs:/var/log/qr-bot
+
+volumes:
+  local-mongodb-data:
+    name: qr-bot-local-mongodb-data
+  local-application-logs:
+    name: qr-bot-local-application-logs

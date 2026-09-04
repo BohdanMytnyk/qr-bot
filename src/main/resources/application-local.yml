@@ -1,7 +1,14 @@
+spring:
+  data:
+    mongodb:
+      database: qr_bot
+qr:
+  access:
+    allowed-customer-id: ${LOCAL_TELEGRAM_OWNER_ID}
+  links:
+    include-telegram-deep-link: true
 telegram:
   polling:
     enabled: true
-    fixed-delay: 1000
   webhook:
     enabled: false
-    secret: ""

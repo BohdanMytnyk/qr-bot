@@ -361,7 +361,7 @@ public class QrWorkflow {
         saveUser(message.getFrom(), BotUser.State.IDLE, null, null, null);
         var link = links.publicLink(qrCode);
         telegram.sendPhoto(message.getChat().getId(), "qr-" + qrCode.id() + ".png",
-                imageGenerator.generatePng(link), "🔗 " + link);
+                imageGenerator.generatePng(link), qrLinkCaption(qrCode));
         analytics.track(AnalyticsAction.QR_CREATED, message.getFrom().getId(), message.getChat().getId(), qrCode);
         var view = mainMenuView();
         var navigationMessageId = telegram.sendInline(message.getChat().getId(),
@@ -642,7 +642,7 @@ public class QrWorkflow {
         }
         var link = links.publicLink(qrCode);
         var qrMessageId = telegram.sendPhoto(chatId, "qr-" + qrCode.id() + ".png", imageGenerator.generatePng(link),
-                "🔗 " + link, keyboard(List.of(row(button("⬅️ Назад до QR-коду", VIEW_PREFIX + qrCode.id())),
+                qrLinkCaption(qrCode), keyboard(List.of(row(button("⬅️ Назад до QR-коду", VIEW_PREFIX + qrCode.id())),
                         row(button("📚 Мої QR-коди", MENU_LIST), button("🏠 Головне меню", MENU_HOME)))));
         setNavigationMessage(actor, qrMessageId);
         setDisplayedMessages(actor, List.of(qrMessageId));
@@ -861,7 +861,7 @@ public class QrWorkflow {
         saveUser(actor, BotUser.State.IDLE, null, null, null);
         var link = links.publicLink(qrCode);
         telegram.sendPhoto(chatId, "qr-" + qrCode.id() + ".png",
-                imageGenerator.generatePng(link), "🔗 " + link);
+                imageGenerator.generatePng(link), qrLinkCaption(qrCode));
         analytics.track(AnalyticsAction.QR_CREATED, actor.getId(), chatId, qrCode);
         var view = mainMenuView();
         var navigationMessageId = telegram.sendInline(chatId,
@@ -1260,6 +1260,14 @@ public class QrWorkflow {
     private String normalizePassword(String password, boolean ignoreCase) {
         var normalized = password.strip();
         return ignoreCase ? normalized.toLowerCase(java.util.Locale.ROOT) : normalized;
+    }
+
+    private String qrLinkCaption(QrCode qrCode) {
+        var caption = "🔗 " + links.publicLink(qrCode);
+        if (!links.includeTelegramDeepLink()) {
+            return caption;
+        }
+        return caption + "\n\n🧪 Пряме Telegram-посилання:\n" + links.telegramDeepLink(qrCode);
     }
 
     private InlineKeyboard caseChoiceKeyboard(String prefix) {
